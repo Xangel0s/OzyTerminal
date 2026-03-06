@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "app-client/src-tauri",
+    "control-plane",
+    "agent-node",
+]
+resolver = "2"
