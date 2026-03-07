@@ -5,3 +5,4 @@ target/
 **/node_modules/
 **/dist/
 .tauri/
+app-client/src-tauri/gen/

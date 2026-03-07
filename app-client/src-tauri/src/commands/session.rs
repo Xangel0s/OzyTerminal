@@ -17,18 +17,29 @@ pub async fn open_session(
     let session_id = Uuid::new_v4();
     let (input_tx, input_rx) = mpsc::channel(1024);
     let (event_tx, _) = broadcast::channel(1024);
+    let target_label = format!("{}@{}:{}", request.username, request.host, request.port);
+    let mirror_owner_id = request
+        .mirror_owner_id
+        .clone()
+        .unwrap_or_else(|| "local-operator".into());
+
+    state
+        .session_mirrors
+        .write()
+        .register_session(session_id, mirror_owner_id, target_label);
 
     state.sessions.write().insert(
         session_id,
         SessionHandle {
             input_tx: input_tx.clone(),
-            event_tx: event_tx.clone(),
         },
     );
 
     let mut event_rx = event_tx.subscribe();
+    let state_for_events = state.inner().clone();
     tokio::spawn(async move {
         while let Ok(event) = event_rx.recv().await {
+            record_session_mirror_event(&state_for_events, session_id, &event);
             let _ = events.send(event);
         }
     });
@@ -48,6 +59,21 @@ pub async fn open_session(
     });
 
     Ok(session_id.to_string())
+}
+
+fn record_session_mirror_event(state: &AppState, session_id: Uuid, event: &TerminalEvent) {
+    let mut mirrors = state.session_mirrors.write();
+    match event {
+        TerminalEvent::Connected { .. } => mirrors.mark_connected(session_id),
+        TerminalEvent::Stdout { chunk_b64 } => {
+            if let Ok(bytes) = STANDARD.decode(chunk_b64) {
+                let text = String::from_utf8_lossy(&bytes);
+                mirrors.append_stdout(session_id, &text);
+            }
+        }
+        TerminalEvent::Closed { reason } => mirrors.mark_closed(session_id, reason),
+        TerminalEvent::Error { message } => mirrors.mark_error(session_id, message),
+    }
 }
 
 #[tauri::command]
@@ -95,10 +121,7 @@ pub async fn resize_session(
 }
 
 #[tauri::command]
-pub async fn close_session(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<(), String> {
+pub async fn close_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let session_id = Uuid::parse_str(&session_id).map_err(|err| err.to_string())?;
     let sender = state
         .sessions

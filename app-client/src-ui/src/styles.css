@@ -260,6 +260,8 @@ body {
 .terminal-card {
   padding: 14px;
   min-height: 520px;
+  display: grid;
+  gap: 14px;
 }
 
 .terminal-shell {
@@ -303,6 +305,34 @@ body {
 .terminal-placeholder h2,
 .terminal-placeholder p {
   margin: 0;
+}
+
+.mirror-panel {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mirror-panel h2,
+.mirror-panel p {
+  margin: 0;
+}
+
+.mirror-transcript {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(4, 10, 14, 0.9);
+  color: var(--text);
+  font-family: 'Iosevka Term', 'Consolas', monospace;
+  font-size: 0.86rem;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @media (max-width: 920px) {

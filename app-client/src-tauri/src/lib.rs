@@ -11,6 +11,15 @@ pub fn run() {
     tauri::Builder::default()
         .manage(app_state::AppState::default())
         .invoke_handler(tauri::generate_handler![
+            commands::collab::bootstrap_demo_shared_vault_command,
+            commands::collab::get_session_mirror_command,
+            commands::collab::list_session_mirrors_command,
+            commands::collab::list_shared_vault_entries_command,
+            commands::collab::load_shared_vault_command,
+            commands::collab::save_shared_vault_command,
+            commands::collab::share_session_mirror_command,
+            commands::control_plane::issue_relay_lease_command,
+            commands::control_plane::issue_ssh_certificate_command,
             commands::session::open_session,
             commands::session::send_input,
             commands::session::resize_session,
@@ -18,6 +27,7 @@ pub fn run() {
             commands::vault::encrypt_secret,
             commands::vault::save_local_vault,
             commands::vault::load_local_vault,
+            commands::vault::rotate_local_vault_password,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run tauri application");

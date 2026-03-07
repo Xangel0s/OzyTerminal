@@ -32,7 +32,8 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
       return;
     }
 
-    setSessionSnapshot({ status: 'connecting', message: 'opening ssh session' });
+    sessionIdRef.current = null;
+    setSessionSnapshot({ sessionId: null, status: 'connecting', message: 'opening ssh session' });
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -83,9 +84,15 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
         rows: terminal.rows,
       },
       events: eventChannel,
-    }).then((sessionId) => {
-      sessionIdRef.current = sessionId;
-    });
+    })
+      .then((sessionId) => {
+        sessionIdRef.current = sessionId;
+      })
+      .catch((error) => {
+        const message = String(error);
+        setSessionSnapshot({ status: 'error', message });
+        terminal.writeln(`\r\n[error] ${message}`);
+      });
 
     const dataDisposable = terminal.onData((data) => {
       const sessionId = sessionIdRef.current;

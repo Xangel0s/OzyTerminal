@@ -1135,6 +1135,17 @@ Condiciones de salida:
 
 Prioridad: critica.
 
+### Estado validado al 2026-03-07
+
+- Fase 0 cerrada: workspace, `app-client`, `control-plane` y `agent-node` compilan con `cargo check`; `npm run build` del cliente queda limpio.
+- Fase 1 cerrada: la app abre sesion SSH real con `russh`, valida host key y ya tiene prueba de conexion contra servidor SSH local.
+- Fase 2 cerrada: el vault local usa cifrado simetrico con metadata KDF persistida, guardado atomico y rotacion de master password.
+- Fase 3 cerrada: el cliente exige fingerprint/host key explicita y corta la conexion si no coincide.
+- Fase 4 cerrada: el control-plane persiste una CA Ed25519 real, emite certificados OpenSSH validos y el cliente los reutiliza o renueva automaticamente.
+- Fase 5 cerrada en su baseline funcional: hay registro de nodo, lease efimero, claim por `target_node_id`, relay TCP real, expiracion, re-registro del `agent-node` y proxy binario cliente <-> relay <-> SSH local.
+- Fase 6 cerrada en su baseline funcional: el shared vault persiste en disco con versionado minimo, resuelve ACL efectiva por servidor y el cliente expone session mirror local read-only para observadores autorizados.
+- Fase 7 queda parcial: ya existe un flujo demo reproducible en la app, pero falta endurecer observabilidad, auditoria colaborativa y empaquetado del recorrido completo.
+
 ## 18. Backlog tecnico inmediato
 
 Este es el backlog mas pragmatica para las siguientes iteraciones de codigo.
