@@ -237,8 +237,9 @@ The next engineering layer is not "make SSH work". That part already works.
 
 The next layer is:
 
+- first: multi-session UX closer to a lightweight terminal manager
+- second: manual renewal flows for certificates and relay leases from saved profiles
 - richer shared-vault editing UX
 - better mirror observability, retention, and admin queries
 - packaging the end-to-end demo as a repeatable operator flow
 - hardening auth, policy, and identity around collaboration
-- multi-session UX and manual renewal flows for certificates and relay leases

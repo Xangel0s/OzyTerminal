@@ -1150,6 +1150,12 @@ Prioridad: critica.
 
 Este es el backlog mas pragmatica para las siguientes iteraciones de codigo.
 
+### Orden recomendado del siguiente corte
+
+1. App client: pestañas o sesiones multiples con UX mas cercana a un terminal manager.
+2. App client + backend: renovacion manual de certificados y leases desde perfiles persistidos.
+3. Backend Tauri: timeouts/cancelacion mas finos y endurecimiento de trust/import.
+
 ### App client
 
 - Añadir pestañas o sesiones multiples con UX mas cercana a un terminal manager.
