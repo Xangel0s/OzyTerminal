@@ -29,6 +29,7 @@ pub struct RelayHint {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SshSessionRequest {
+    pub profile_name: Option<String>,
     pub host: String,
     pub port: u16,
     pub username: String,
@@ -724,6 +725,7 @@ mod tests {
             let task = tokio::spawn(connect_ssh(
                 Uuid::new_v4(),
                 SshSessionRequest {
+                    profile_name: None,
                     host: "127.0.0.1".into(),
                     port: server_addr.port(),
                     username: "ozy".into(),

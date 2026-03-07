@@ -53,11 +53,23 @@ pub struct VaultEntry {
     pub control_plane: Option<ControlPlaneConfig>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownHostEntry {
+    pub host: String,
+    pub port: u16,
+    pub fingerprint_sha256: String,
+    pub host_key_openssh: String,
+    pub added_at: u64,
+    pub label: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveLocalVaultRequest {
     pub master_password: String,
     pub entries: Vec<VaultEntry>,
+    pub known_hosts: Option<Vec<KnownHostEntry>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,6 +89,7 @@ pub struct RotateLocalVaultPasswordRequest {
 #[serde(rename_all = "camelCase")]
 pub struct LocalVaultResponse {
     pub entries: Vec<VaultEntry>,
+    pub known_hosts: Vec<KnownHostEntry>,
     pub updated_at: u64,
     pub vault_path: String,
 }
@@ -123,6 +136,8 @@ struct LegacyLocalVaultFile {
 #[serde(rename_all = "camelCase")]
 struct LocalVaultPayload {
     entries: Vec<VaultEntry>,
+    #[serde(default)]
+    known_hosts: Vec<KnownHostEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -162,8 +177,18 @@ pub fn encrypt_secret(request: EncryptSecretRequest) -> Result<EncryptSecretResp
 pub fn save_local_vault(request: SaveLocalVaultRequest) -> Result<LocalVaultResponse, String> {
     let vault_path = local_vault_path()?;
     let mut master_password = request.master_password.into_bytes();
-    let metadata = load_existing_metadata(&vault_path, &master_password)?;
-    let response = persist_local_vault(&vault_path, &master_password, request.entries, metadata)?;
+    let (metadata, existing_payload) = load_existing_context(&vault_path, &master_password)?;
+    let response = persist_local_vault(
+        &vault_path,
+        &master_password,
+        request.entries,
+        request.known_hosts.unwrap_or_else(|| {
+            existing_payload
+                .map(|payload| payload.known_hosts)
+                .unwrap_or_default()
+        }),
+        metadata,
+    )?;
     master_password.zeroize();
     Ok(response)
 }
@@ -178,13 +203,20 @@ pub fn rotate_local_vault_password(
 
     let (payload, metadata, response) =
         read_local_vault_with_password(&vault_path, &current_password)?;
-    let rotated = persist_local_vault(&vault_path, &new_password, payload.entries, Some(metadata))?;
+    let rotated = persist_local_vault(
+        &vault_path,
+        &new_password,
+        payload.entries,
+        payload.known_hosts,
+        Some(metadata),
+    )?;
 
     current_password.zeroize();
     new_password.zeroize();
 
     Ok(LocalVaultResponse {
         entries: rotated.entries,
+        known_hosts: rotated.known_hosts,
         updated_at: response.updated_at.max(rotated.updated_at),
         vault_path: rotated.vault_path,
     })
@@ -226,16 +258,16 @@ fn unix_timestamp() -> Result<u64, String> {
         .map_err(|err| err.to_string())
 }
 
-fn load_existing_metadata(
+fn load_existing_context(
     vault_path: &Path,
     master_password: &[u8],
-) -> Result<Option<VaultMetadata>, String> {
+) -> Result<(Option<VaultMetadata>, Option<LocalVaultPayload>), String> {
     if !vault_path.exists() {
-        return Ok(None);
+        return Ok((None, None));
     }
 
-    let (_, metadata, _) = read_local_vault_with_password(vault_path, master_password)?;
-    Ok(Some(metadata))
+    let (payload, metadata, _) = read_local_vault_with_password(vault_path, master_password)?;
+    Ok((Some(metadata), Some(payload)))
 }
 
 fn read_local_vault_with_password(
@@ -254,6 +286,7 @@ fn read_local_vault_with_password(
         metadata,
         LocalVaultResponse {
             entries: payload.entries,
+            known_hosts: payload.known_hosts,
             updated_at: vault_file.updated_at,
             vault_path: vault_path.display().to_string(),
         },
@@ -264,6 +297,7 @@ fn persist_local_vault(
     vault_path: &Path,
     master_password: &[u8],
     entries: Vec<VaultEntry>,
+    known_hosts: Vec<KnownHostEntry>,
     metadata: Option<VaultMetadata>,
 ) -> Result<LocalVaultResponse, String> {
     if let Some(parent) = vault_path.parent() {
@@ -276,7 +310,10 @@ fn persist_local_vault(
         created_at: now,
     });
 
-    let payload = LocalVaultPayload { entries };
+    let payload = LocalVaultPayload {
+        entries,
+        known_hosts,
+    };
     let mut payload_json = serde_json::to_vec(&payload).map_err(|err| err.to_string())?;
     let salt = random_array::<16>();
     let mut dek = random_array::<32>();
@@ -325,6 +362,7 @@ fn persist_local_vault(
 
     Ok(LocalVaultResponse {
         entries: payload.entries,
+        known_hosts: payload.known_hosts,
         updated_at: now,
         vault_path: vault_path.display().to_string(),
     })
@@ -425,8 +463,8 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        load_local_vault, rotate_local_vault_password, save_local_vault, LoadLocalVaultRequest,
-        RotateLocalVaultPasswordRequest, SaveLocalVaultRequest, VaultEntry,
+        load_local_vault, rotate_local_vault_password, save_local_vault, KnownHostEntry,
+        LoadLocalVaultRequest, RotateLocalVaultPasswordRequest, SaveLocalVaultRequest, VaultEntry,
     };
     use std::{
         env, fs,
@@ -459,6 +497,17 @@ mod tests {
         }
     }
 
+    fn sample_known_host() -> KnownHostEntry {
+        KnownHostEntry {
+            host: "127.0.0.1".into(),
+            port: 22,
+            fingerprint_sha256: "SHA256:test".into(),
+            host_key_openssh: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest".into(),
+            added_at: 1,
+            label: Some("Local".into()),
+        }
+    }
+
     #[test]
     fn roundtrip_and_password_rotation() {
         let _guard = env_lock().lock().expect("lock env");
@@ -469,15 +518,18 @@ mod tests {
         let saved = save_local_vault(SaveLocalVaultRequest {
             master_password: "old-pass".into(),
             entries: vec![sample_entry()],
+            known_hosts: Some(vec![sample_known_host()]),
         })
         .expect("save should succeed");
         assert_eq!(saved.entries.len(), 1);
+        assert_eq!(saved.known_hosts.len(), 1);
 
         let loaded = load_local_vault(LoadLocalVaultRequest {
             master_password: "old-pass".into(),
         })
         .expect("load should succeed");
         assert_eq!(loaded.entries[0].host, "127.0.0.1");
+        assert_eq!(loaded.known_hosts.len(), 1);
 
         rotate_local_vault_password(RotateLocalVaultPasswordRequest {
             current_password: "old-pass".into(),
@@ -496,6 +548,7 @@ mod tests {
         })
         .expect("new password should work");
         assert_eq!(reloaded.entries.len(), 1);
+        assert_eq!(reloaded.known_hosts.len(), 1);
 
         let _ = fs::remove_file(&vault_path);
         env::remove_var("OZYTERMINAL_VAULT_PATH");
@@ -511,12 +564,14 @@ mod tests {
         save_local_vault(SaveLocalVaultRequest {
             master_password: "correct-pass".into(),
             entries: vec![sample_entry()],
+            known_hosts: Some(vec![sample_known_host()]),
         })
         .expect("initial save should succeed");
 
         let err = save_local_vault(SaveLocalVaultRequest {
             master_password: "wrong-pass".into(),
             entries: vec![sample_entry()],
+            known_hosts: None,
         })
         .expect_err("save should reject unknown password");
         assert!(err.contains("invalid vault password"));

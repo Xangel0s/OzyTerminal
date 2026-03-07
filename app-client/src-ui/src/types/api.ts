@@ -14,6 +14,7 @@ export type ControlPlaneConfig = {
 };
 
 export type SshSessionRequest = {
+  profileName?: string;
   host: string;
   port: number;
   username: string;
@@ -42,8 +43,18 @@ export type VaultEntry = {
   controlPlane?: ControlPlaneConfig;
 };
 
+export type KnownHostEntry = {
+  host: string;
+  port: number;
+  fingerprintSha256: string;
+  hostKeyOpenssh: string;
+  addedAt: number;
+  label?: string;
+};
+
 export type LocalVaultResponse = {
   entries: VaultEntry[];
+  knownHosts: KnownHostEntry[];
   updatedAt: number;
   vaultPath: string;
 };
@@ -72,6 +83,31 @@ export type ResolvedRelayLease = {
   purpose: string;
   issuedAt: number;
   expiresAt: number;
+};
+
+export type ProbeHostKeyResponse = {
+  host: string;
+  port: number;
+  algorithm: string;
+  fingerprintSha256: string;
+  hostKeyOpenssh: string;
+  discoveredAt: number;
+};
+
+export type RecentConnectionEntry = {
+  id: string;
+  profileName: string;
+  host: string;
+  port: number;
+  username: string;
+  relayTargetNodeId?: string;
+  environment?: string;
+  connectedAt: number;
+};
+
+export type RecentConnectionsResponse = {
+  historyPath: string;
+  entries: RecentConnectionEntry[];
 };
 
 export type SharedServerConfig = {

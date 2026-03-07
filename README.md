@@ -20,6 +20,8 @@ This repository is not a static mock anymore. It already contains a working base
 - Shared vault persisted on disk with effective ACL resolution
 - Read-only session mirror for authorized viewers
 - Collaboration audit trail persisted as JSONL
+- SSH host-key discovery and explicit local trust flow
+- Recent connections history without storing secrets
 
 ## Architecture
 
@@ -28,10 +30,11 @@ This repository is not a static mock anymore. It already contains a working base
 The desktop client owns the operator workflow:
 
 - collects connection data
-- validates the server host key
+- discovers and validates the server host key
 - unlocks the local vault
 - requests SSH certs or relay leases from the control-plane
 - opens the interactive terminal
+- keeps lightweight recent-connection history
 - exposes a shared vault demo flow and a mirror viewer
 
 Key pieces:
@@ -68,11 +71,12 @@ The current happy path is:
 2. Start `agent-node` on the target machine.
 3. Open `app-client`.
 4. Load or save a local encrypted vault entry.
-5. Issue a short-lived SSH cert if needed.
-6. If the host is behind CGNAT, set `Target Node` and let the client resolve the relay lease.
-7. Connect to the terminal.
-8. Share the active session with a viewer and inspect the mirror read-only.
-9. Bootstrap the demo shared vault and resolve effective ACL by actor.
+5. Discover the SSH host key and explicitly trust it.
+6. Issue a short-lived SSH cert if needed.
+7. If the host is behind CGNAT, set `Target Node` and let the client resolve the relay lease.
+8. Connect to the terminal.
+9. Share the active session with a viewer and inspect the mirror read-only.
+10. Bootstrap the demo shared vault and resolve effective ACL by actor.
 
 ## Quick Start
 
@@ -164,6 +168,16 @@ The app also writes a local collaboration audit log for:
 
 The current store is JSONL so it stays easy to inspect and automate against.
 
+### Host Trust And Recents
+
+The local client now also provides:
+
+- host-key probing over a real SSH handshake
+- explicit trust of the discovered key before saving
+- encrypted `known_hosts` persistence inside the local vault
+- automatic reuse of trusted fingerprints for the same host and port
+- recent-connection history persisted without private keys or tokens
+
 ## Important Environment Variables
 
 ### Control-plane
@@ -203,7 +217,7 @@ As of 2026-03-07:
 
 - Fase 0 a Fase 5: baseline funcional cerrada
 - Fase 6: baseline funcional cerrada
-- Fase 7: parcial, falta endurecimiento y demo empaquetada de forma mas pulida
+- Fase 7: parcial, pero ya incluye onboarding de host key, `known_hosts`, recientes y demo reproducible por script
 
 ## Repository Map
 

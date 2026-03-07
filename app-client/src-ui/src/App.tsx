@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TerminalView } from './components/TerminalView';
 import { useTerminalSession } from './hooks/useTerminalSession';
 import type {
   CollabAuditEntriesResponse,
   ControlPlaneConfig,
+  KnownHostEntry,
   LocalVaultResponse,
+  ProbeHostKeyResponse,
+  RecentConnectionEntry,
+  RecentConnectionsResponse,
   RelayHint,
   ResolvedRelayLease,
   ResolvedSshCertificate,
@@ -85,7 +89,24 @@ export default function App() {
   const [activeMirror, setActiveMirror] = useState<SessionMirrorSnapshot | null>(null);
   const [collabAuditPath, setCollabAuditPath] = useState('');
   const [collabAuditEntries, setCollabAuditEntries] = useState<CollabAuditEntriesResponse['entries']>([]);
+  const [knownHosts, setKnownHosts] = useState<KnownHostEntry[]>([]);
+  const [discoveredHostKey, setDiscoveredHostKey] = useState<ProbeHostKeyResponse | null>(null);
+  const [recentConnections, setRecentConnections] = useState<RecentConnectionEntry[]>([]);
+  const [recentHistoryPath, setRecentHistoryPath] = useState('');
   const [feedback, setFeedback] = useState('vault local listo');
+
+  useEffect(() => {
+    void loadRecentConnections();
+  }, []);
+
+  useEffect(() => {
+    if (session.status === 'connected') {
+      const timer = window.setTimeout(() => {
+        void loadRecentConnections();
+      }, 300);
+      return () => window.clearTimeout(timer);
+    }
+  }, [session.status]);
 
   const activeRelay = useMemo<RelayHint | undefined>(() => {
     if (!form.relayTargetNodeId.trim()) {
@@ -143,6 +164,7 @@ export default function App() {
 
   function toSessionRequest(): SshSessionRequest {
     return {
+      profileName: form.name || `${form.username}@${form.host}`,
       host: form.host,
       port: Number(form.port || 22),
       username: form.username,
@@ -159,12 +181,13 @@ export default function App() {
   }
 
   function loadEntry(entry: VaultEntry) {
+    const knownHost = findKnownHost(knownHosts, entry.host, entry.port);
     setForm({
       name: entry.name,
       host: entry.host,
       port: String(entry.port),
       username: entry.username,
-      knownHostFingerprint: entry.knownHostFingerprint ?? '',
+      knownHostFingerprint: entry.knownHostFingerprint ?? knownHost?.fingerprintSha256 ?? '',
       privateKeyPem: entry.privateKeyPem,
       privateKeyPassphrase: entry.privateKeyPassphrase ?? '',
       certificatePem: entry.certificatePem ?? '',
@@ -187,6 +210,7 @@ export default function App() {
     });
     setIssuedCertificate(null);
     setIssuedRelayLease(null);
+    setDiscoveredHostKey(null);
     setFeedback(`perfil cargado: ${entry.name}`);
   }
 
@@ -236,10 +260,12 @@ export default function App() {
         request: {
           masterPassword: vaultPassword,
           entries: nextEntries,
+          knownHosts,
         },
       });
 
       setVaultEntries(response.entries);
+      setKnownHosts(response.knownHosts);
       setVaultPath(response.vaultPath);
       setVaultUpdatedAt(response.updatedAt);
       setFeedback(`vault guardado en ${response.vaultPath}`);
@@ -260,6 +286,7 @@ export default function App() {
       });
 
       setVaultEntries(response.entries);
+      setKnownHosts(response.knownHosts);
       setVaultPath(response.vaultPath);
       setVaultUpdatedAt(response.updatedAt);
       if (response.entries[0]) {
@@ -287,6 +314,7 @@ export default function App() {
       });
 
       setVaultEntries(response.entries);
+      setKnownHosts(response.knownHosts);
       setVaultPath(response.vaultPath);
       setVaultUpdatedAt(response.updatedAt);
       setVaultPassword(nextVaultPassword);
@@ -303,7 +331,12 @@ export default function App() {
       return;
     }
 
-    if (!form.knownHostFingerprint.trim()) {
+    const expectedHostFingerprint =
+      form.knownHostFingerprint.trim() ||
+      findKnownHost(knownHosts, form.host, Number(form.port || 22))?.fingerprintSha256 ||
+      '';
+
+    if (!expectedHostFingerprint) {
       setFeedback('define la fingerprint SHA-256 o la host key OpenSSH antes de conectar');
       return;
     }
@@ -317,7 +350,14 @@ export default function App() {
       return;
     }
 
-    setActiveRequest(toSessionRequest());
+    const nextRequest = {
+      ...toSessionRequest(),
+      knownHostFingerprint: expectedHostFingerprint,
+    };
+    if (expectedHostFingerprint !== form.knownHostFingerprint.trim()) {
+      updateField('knownHostFingerprint', expectedHostFingerprint);
+    }
+    setActiveRequest(nextRequest);
     setFeedback(`abriendo sesion contra ${form.host}:${form.port}`);
   }
 
@@ -349,6 +389,83 @@ export default function App() {
     } catch (error) {
       setFeedback(String(error));
     }
+  }
+
+  async function probeHostKey() {
+    if (!form.host.trim()) {
+      setFeedback('define el host antes de descubrir la host key');
+      return;
+    }
+
+    try {
+      const response = await invoke<ProbeHostKeyResponse>('probe_ssh_host_key_command', {
+        request: {
+          host: form.host.trim(),
+          port: Number(form.port || 22),
+        },
+      });
+      setDiscoveredHostKey(response);
+      updateField('knownHostFingerprint', response.fingerprintSha256);
+      setFeedback(`host key detectada: ${response.fingerprintSha256}`);
+    } catch (error) {
+      setFeedback(String(error));
+    }
+  }
+
+  function trustDiscoveredHostKey() {
+    if (!discoveredHostKey) {
+      setFeedback('primero descubre una host key');
+      return;
+    }
+
+    setKnownHosts((current) =>
+      upsertKnownHost(current, {
+        host: discoveredHostKey.host,
+        port: discoveredHostKey.port,
+        fingerprintSha256: discoveredHostKey.fingerprintSha256,
+        hostKeyOpenssh: discoveredHostKey.hostKeyOpenssh,
+        addedAt: discoveredHostKey.discoveredAt,
+        label: form.name.trim() || undefined,
+      }),
+    );
+    updateField('knownHostFingerprint', discoveredHostKey.fingerprintSha256);
+    setFeedback('host key confiada localmente; guarda el vault para persistirla');
+  }
+
+  function applyKnownHostForCurrentTarget() {
+    const knownHost = findKnownHost(knownHosts, form.host, Number(form.port || 22));
+    if (!knownHost) {
+      setFeedback('no hay known_host guardado para este destino');
+      return;
+    }
+
+    updateField('knownHostFingerprint', knownHost.fingerprintSha256);
+    setFeedback(`known_host aplicado: ${knownHost.fingerprintSha256}`);
+  }
+
+  async function loadRecentConnections() {
+    try {
+      const response = await invoke<RecentConnectionsResponse>('list_recent_connections_command');
+      setRecentConnections(response.entries);
+      setRecentHistoryPath(response.historyPath);
+    } catch {
+      setRecentConnections([]);
+    }
+  }
+
+  function loadRecentConnection(entry: RecentConnectionEntry) {
+    const knownHost = findKnownHost(knownHosts, entry.host, entry.port);
+    setForm((current) => ({
+      ...current,
+      name: entry.profileName,
+      host: entry.host,
+      port: String(entry.port),
+      username: entry.username,
+      knownHostFingerprint: knownHost?.fingerprintSha256 ?? current.knownHostFingerprint,
+      relayTargetNodeId: entry.relayTargetNodeId ?? '',
+      controlPlaneEnvironment: entry.environment ?? current.controlPlaneEnvironment,
+    }));
+    setFeedback(`conexion reciente cargada: ${entry.profileName}`);
   }
 
   async function loadSharedVault() {
@@ -576,6 +693,26 @@ export default function App() {
             <p>{session.message}</p>
             {session.sessionId ? <p className="mono">{session.sessionId}</p> : null}
           </div>
+          {recentConnections.length > 0 ? (
+            <>
+              <h3>Recientes</h3>
+              <div className="vault-list">
+                {recentConnections.slice(0, 5).map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className="vault-item"
+                    onClick={() => loadRecentConnection(entry)}
+                  >
+                    <strong>{entry.profileName}</strong>
+                    <span>{entry.username}@{entry.host}:{entry.port}</span>
+                    <span>{new Date(entry.connectedAt * 1000).toLocaleString()}</span>
+                  </button>
+                ))}
+              </div>
+              {recentHistoryPath ? <p className="hint mono">{recentHistoryPath}</p> : null}
+            </>
+          ) : null}
 
           <div className="form-grid">
             <label>
@@ -627,6 +764,39 @@ export default function App() {
               />
             </label>
           </div>
+          <div className="button-row">
+            <button type="button" className="secondary" onClick={() => void probeHostKey()}>
+              Descubrir Host Key
+            </button>
+            <button type="button" className="secondary" onClick={trustDiscoveredHostKey}>
+              Confiar Host
+            </button>
+            <button type="button" className="secondary" onClick={applyKnownHostForCurrentTarget}>
+              Usar Known Host
+            </button>
+          </div>
+          {discoveredHostKey ? (
+            <p className="hint">
+              {discoveredHostKey.algorithm} · {discoveredHostKey.fingerprintSha256}
+            </p>
+          ) : null}
+          {knownHosts.length > 0 ? (
+            <div className="vault-list">
+              {knownHosts
+                .filter((entry) => entry.host === form.host && entry.port === Number(form.port || 22))
+                .map((entry) => (
+                  <button
+                    key={`${entry.host}:${entry.port}:${entry.fingerprintSha256}`}
+                    type="button"
+                    className="vault-item"
+                    onClick={() => updateField('knownHostFingerprint', entry.fingerprintSha256)}
+                  >
+                    <strong>{entry.label || `${entry.host}:${entry.port}`}</strong>
+                    <span>{entry.fingerprintSha256}</span>
+                  </button>
+                ))}
+            </div>
+          ) : null}
 
           <h3>Control Plane</h3>
           <div className="form-grid">
@@ -940,6 +1110,19 @@ function upsertEntry(entries: VaultEntry[], next: VaultEntry) {
   }
 
   return entries.map((entry, index) => (index === matchIndex ? { ...next, id: entry.id } : entry));
+}
+
+function upsertKnownHost(entries: KnownHostEntry[], next: KnownHostEntry) {
+  const matchIndex = entries.findIndex((entry) => entry.host === next.host && entry.port === next.port);
+  if (matchIndex === -1) {
+    return [next, ...entries];
+  }
+
+  return entries.map((entry, index) => (index === matchIndex ? next : entry));
+}
+
+function findKnownHost(entries: KnownHostEntry[], host: string, port: number) {
+  return entries.find((entry) => entry.host === host.trim() && entry.port === port);
 }
 
 function splitList(value: string) {

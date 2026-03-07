@@ -62,6 +62,16 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
           sessionIdRef.current = event.session_id;
           setSessionSnapshot({ sessionId: event.session_id, status: 'connected', message: 'connected' });
           terminal.writeln('[connected] ssh session established');
+          void invoke('record_recent_connection_command', {
+            request: {
+              profileName: request.profileName ?? `${request.username}@${request.host}`,
+              host: request.host,
+              port: request.port,
+              username: request.username,
+              relayTargetNodeId: request.relayHint?.targetNodeId,
+              environment: request.controlPlane?.environment,
+            },
+          });
           break;
         case 'stdout':
           terminal.write(base64ToText(event.chunk_b64));

@@ -1144,7 +1144,7 @@ Prioridad: critica.
 - Fase 4 cerrada: el control-plane persiste una CA Ed25519 real, emite certificados OpenSSH validos y el cliente los reutiliza o renueva automaticamente.
 - Fase 5 cerrada en su baseline funcional: hay registro de nodo, lease efimero, claim por `target_node_id`, relay TCP real, expiracion, re-registro del `agent-node` y proxy binario cliente <-> relay <-> SSH local.
 - Fase 6 cerrada en su baseline funcional: el shared vault persiste en disco con versionado minimo, ya admite alta/baja de servidores desde la UI, resuelve ACL efectiva por servidor, registra auditoria colaborativa local y el cliente expone session mirror read-only para observadores autorizados.
-- Fase 7 queda parcial: ya existe un flujo demo reproducible en la app, pero falta endurecer observabilidad, auditoria colaborativa y empaquetado del recorrido completo.
+- Fase 7 queda parcial: ya existe un flujo demo reproducible en la app, con onboarding de host key, `known_hosts` cifrado, conexiones recientes y script de arranque por rol; falta endurecer observabilidad, auditoria colaborativa y empaquetado mas pulido del recorrido completo.
 
 ## 18. Backlog tecnico inmediato
 
@@ -1152,20 +1152,16 @@ Este es el backlog mas pragmatica para las siguientes iteraciones de codigo.
 
 ### App client
 
-- Sustituir el formulario demo por un formulario real conectado a estado estable.
-- Implementar persistencia del vault local.
-- Soportar importacion de clave privada y certificado.
-- Añadir onboarding de fingerprint de host.
-- Mostrar errores de conexion, auth y relay en UI.
+- Soportar importacion asistida de clave privada y certificado.
+- Mostrar errores de conexion, auth y relay en UI con clasificacion mas clara.
 - Evitar recrear la sesion si cambia estado no estructural del formulario.
+- Añadir pestañas o sesiones multiples con UX mas cercana a un terminal manager.
 
 ### Backend Tauri
 
-- Alinear `Cargo.toml` real con las APIs efectivas de `russh`.
-- Revisar compatibilidad de `decode_secret_key`, certificados OpenSSH y fingerprints.
-- Añadir timeouts de conexion y cancelacion.
+- Añadir timeouts de conexion y cancelacion mas finos.
 - Separar errores de handshake, auth, host key y shell.
-- Persistir `known_hosts` en el vault local.
+- Persistir politicas de trust y rotacion de `known_hosts`.
 
 ### Control-plane
 
