@@ -26,6 +26,7 @@ pub fn run() {
             commands::history::list_recent_connections_command,
             commands::history::record_recent_connection_command,
             commands::host::probe_ssh_host_key_command,
+            commands::import::inspect_imported_credential_command,
             commands::session::open_session,
             commands::session::send_input,
             commands::session::resize_session,

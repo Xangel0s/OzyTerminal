@@ -1144,7 +1144,7 @@ Prioridad: critica.
 - Fase 4 cerrada: el control-plane persiste una CA Ed25519 real, emite certificados OpenSSH validos y el cliente los reutiliza o renueva automaticamente.
 - Fase 5 cerrada en su baseline funcional: hay registro de nodo, lease efimero, claim por `target_node_id`, relay TCP real, expiracion, re-registro del `agent-node` y proxy binario cliente <-> relay <-> SSH local.
 - Fase 6 cerrada en su baseline funcional: el shared vault persiste en disco con versionado minimo, ya admite alta/baja de servidores desde la UI, resuelve ACL efectiva por servidor, registra auditoria colaborativa local y el cliente expone session mirror read-only para observadores autorizados.
-- Fase 7 cerrada en su baseline funcional: la demo punta a punta ya es reproducible con onboarding de host key, `known_hosts` cifrado, conexiones recientes, relay/control-plane operativos, shared vault editable, session mirror read-only, auditoria colaborativa local y errores clasificados en UI para host key, auth, relay, control-plane, shell y conexion.
+- Fase 7 cerrada en su baseline funcional: la demo punta a punta ya es reproducible con onboarding de host key, `known_hosts` cifrado, conexiones recientes, importacion asistida de claves/certificados, relay/control-plane operativos, shared vault editable, session mirror read-only, auditoria colaborativa local, errores clasificados en UI y sesion fijada hasta reconexion explicita.
 
 ## 18. Backlog tecnico inmediato
 
@@ -1152,8 +1152,6 @@ Este es el backlog mas pragmatica para las siguientes iteraciones de codigo.
 
 ### App client
 
-- Soportar importacion asistida de clave privada y certificado.
-- Evitar recrear la sesion si cambia estado no estructural del formulario.
 - Añadir pestañas o sesiones multiples con UX mas cercana a un terminal manager.
 - Exponer renovacion manual de certificados y leases desde perfiles persistidos.
 
@@ -1161,7 +1159,7 @@ Este es el backlog mas pragmatica para las siguientes iteraciones de codigo.
 
 - Añadir timeouts de conexion y cancelacion mas finos.
 - Persistir politicas de trust y rotacion de `known_hosts`.
-- Añadir importacion y validacion guiada de claves privadas/certificados.
+- Endurecer reglas de importacion y validacion de materiales SSH corruptos o cifrados.
 
 ### Control-plane
 

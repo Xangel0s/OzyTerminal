@@ -110,6 +110,23 @@ export type RecentConnectionsResponse = {
   entries: RecentConnectionEntry[];
 };
 
+export type ImportedCredentialKind = 'private_key' | 'certificate';
+
+export type InspectImportedCredentialResponse = {
+  kind: ImportedCredentialKind;
+  filename?: string;
+  algorithm?: string;
+  fingerprintSha256?: string;
+  publicKeyOpenssh?: string;
+  keyId?: string;
+  principals: string[];
+  validAfter?: number;
+  validBefore?: number;
+  requiresPassphrase: boolean;
+  normalizedContent: string;
+  summary: string;
+};
+
 export type SharedServerConfig = {
   host: string;
   port: number;

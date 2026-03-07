@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TerminalView } from './components/TerminalView';
 import { useTerminalSession } from './hooks/useTerminalSession';
 import type {
   CollabAuditEntriesResponse,
   ControlPlaneConfig,
+  InspectImportedCredentialResponse,
   KnownHostEntry,
   LocalVaultResponse,
   ProbeHostKeyResponse,
@@ -48,6 +49,12 @@ type FormState = {
   sharedVaultNodeId: string;
 };
 
+type ActiveSessionLaunch = {
+  launchId: string;
+  request: SshSessionRequest;
+  startedAt: number;
+};
+
 const initialForm: FormState = {
   name: 'Servidor principal',
   host: '127.0.0.1',
@@ -76,7 +83,7 @@ const initialForm: FormState = {
 export default function App() {
   const session = useTerminalSession();
   const [form, setForm] = useState<FormState>(initialForm);
-  const [activeRequest, setActiveRequest] = useState<SshSessionRequest | null>(null);
+  const [activeLaunch, setActiveLaunch] = useState<ActiveSessionLaunch | null>(null);
   const [vaultPassword, setVaultPassword] = useState('');
   const [nextVaultPassword, setNextVaultPassword] = useState('');
   const [vaultEntries, setVaultEntries] = useState<VaultEntry[]>([]);
@@ -94,7 +101,10 @@ export default function App() {
   const [discoveredHostKey, setDiscoveredHostKey] = useState<ProbeHostKeyResponse | null>(null);
   const [recentConnections, setRecentConnections] = useState<RecentConnectionEntry[]>([]);
   const [recentHistoryPath, setRecentHistoryPath] = useState('');
+  const [importedPrivateKey, setImportedPrivateKey] = useState<InspectImportedCredentialResponse | null>(null);
+  const [importedCertificate, setImportedCertificate] = useState<InspectImportedCredentialResponse | null>(null);
   const [feedback, setFeedback] = useState('vault local listo');
+  const credentialFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void loadRecentConnections();
@@ -143,6 +153,19 @@ export default function App() {
     form.controlPlaneUrl,
   ]);
 
+  const draftSessionRequest = useMemo(
+    () => buildSessionRequest(form, activeRelay, activeControlPlane),
+    [activeControlPlane, activeRelay, form],
+  );
+
+  const pendingSessionChanges = useMemo(() => {
+    if (!activeLaunch) {
+      return [];
+    }
+
+    return describeStructuralSessionChanges(activeLaunch.request, draftSessionRequest);
+  }, [activeLaunch, draftSessionRequest]);
+
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
@@ -160,24 +183,6 @@ export default function App() {
       knownHostFingerprint: form.knownHostFingerprint || undefined,
       relayHint: activeRelay,
       controlPlane: activeControlPlane,
-    };
-  }
-
-  function toSessionRequest(): SshSessionRequest {
-    return {
-      profileName: form.name || `${form.username}@${form.host}`,
-      host: form.host,
-      port: Number(form.port || 22),
-      username: form.username,
-      privateKeyPem: form.privateKeyPem,
-      privateKeyPassphrase: form.privateKeyPassphrase || undefined,
-      certificatePem: form.certificatePem || undefined,
-      knownHostFingerprint: form.knownHostFingerprint || undefined,
-      cols: 120,
-      rows: 34,
-      relayHint: activeRelay,
-      controlPlane: activeControlPlane,
-      mirrorOwnerId: form.mirrorOwnerId.trim() || undefined,
     };
   }
 
@@ -212,6 +217,8 @@ export default function App() {
     setIssuedCertificate(null);
     setIssuedRelayLease(null);
     setDiscoveredHostKey(null);
+    setImportedPrivateKey(null);
+    setImportedCertificate(null);
     setFeedback(`perfil cargado: ${entry.name}`);
   }
 
@@ -247,6 +254,82 @@ export default function App() {
     } catch (error) {
       setFeedback(String(error));
     }
+  }
+
+  function openCredentialPicker() {
+    credentialFileInputRef.current?.click();
+  }
+
+  async function importCredentialFiles(files: FileList | null, input: HTMLInputElement) {
+    const selectedFiles = Array.from(files ?? []);
+    input.value = '';
+
+    if (!selectedFiles.length) {
+      return;
+    }
+
+    let nextPrivateKey: InspectImportedCredentialResponse | null = null;
+    let nextCertificate: InspectImportedCredentialResponse | null = null;
+    const messages: string[] = [];
+
+    for (const file of selectedFiles) {
+      try {
+        const content = await file.text();
+        const imported = await invoke<InspectImportedCredentialResponse>(
+          'inspect_imported_credential_command',
+          {
+            request: {
+              content,
+              filename: file.name,
+              passphrase: form.privateKeyPassphrase.trim() || undefined,
+            },
+          },
+        );
+
+        if (imported.kind === 'private_key') {
+          nextPrivateKey = imported;
+          messages.push(`${file.name}: ${imported.summary}`);
+        } else {
+          nextCertificate = imported;
+          messages.push(`${file.name}: ${imported.summary}`);
+        }
+      } catch (error) {
+        messages.push(`${file.name}: ${String(error)}`);
+      }
+    }
+
+    if (!nextPrivateKey && !nextCertificate) {
+      setFeedback(messages.join(' | ') || 'no se importó ninguna credencial válida');
+      return;
+    }
+
+    setForm((current) => {
+      const next = { ...current };
+      if (nextPrivateKey) {
+        next.privateKeyPem = nextPrivateKey.normalizedContent;
+        if (!nextCertificate) {
+          next.certificatePem = '';
+        }
+      }
+      if (nextCertificate) {
+        next.certificatePem = nextCertificate.normalizedContent;
+      }
+      return next;
+    });
+
+    if (nextPrivateKey) {
+      setImportedPrivateKey(nextPrivateKey);
+      setIssuedCertificate(null);
+      if (!nextCertificate) {
+        setImportedCertificate(null);
+      }
+    }
+    if (nextCertificate) {
+      setImportedCertificate(nextCertificate);
+      setIssuedCertificate(null);
+    }
+
+    setFeedback(messages.join(' | '));
   }
 
   async function saveVault() {
@@ -352,13 +435,29 @@ export default function App() {
     }
 
     const nextRequest = {
-      ...toSessionRequest(),
+      ...draftSessionRequest,
       knownHostFingerprint: expectedHostFingerprint,
     };
     if (expectedHostFingerprint !== form.knownHostFingerprint.trim()) {
       updateField('knownHostFingerprint', expectedHostFingerprint);
     }
-    setActiveRequest(nextRequest);
+
+    const hasLiveSession =
+      session.status === 'connecting' || session.status === 'connected';
+    if (
+      activeLaunch &&
+      hasLiveSession &&
+      structurallyEquivalentSessionRequest(activeLaunch.request, nextRequest)
+    ) {
+      setFeedback('la sesión actual ya usa esa configuración; no se recreó por cambios no estructurales');
+      return;
+    }
+
+    setActiveLaunch({
+      launchId: crypto.randomUUID(),
+      request: nextRequest,
+      startedAt: Date.now(),
+    });
     setFeedback(`abriendo sesion contra ${form.host}:${form.port}`);
   }
 
@@ -693,6 +792,18 @@ export default function App() {
             <span className={`status-pill is-${session.status}`}>{session.status}</span>
             <p>{session.message}</p>
             {session.sessionId ? <p className="mono">{session.sessionId}</p> : null}
+            {activeLaunch ? (
+              <p className="hint">
+                Sesion fijada a {activeLaunch.request.username}@{activeLaunch.request.host}:
+                {activeLaunch.request.port} desde {new Date(activeLaunch.startedAt).toLocaleTimeString()}.
+              </p>
+            ) : null}
+            {activeLaunch && pendingSessionChanges.length === 0 ? (
+              <p className="hint">Los cambios del formulario no reinician esta sesion hasta pulsar Conectar.</p>
+            ) : null}
+            {pendingSessionChanges.length > 0 ? (
+              <p className="hint">Cambios pendientes para reconectar: {pendingSessionChanges.join(', ')}</p>
+            ) : null}
             {session.error ? (
               <div className={`diagnostic-card diagnostic-${session.error.kind}`}>
                 <span className="diagnostic-kind">{labelForTerminalError(session.error.kind)}</span>
@@ -774,7 +885,18 @@ export default function App() {
               />
             </label>
           </div>
+          <input
+            ref={credentialFileInputRef}
+            type="file"
+            accept=".pem,.key,.pub,.txt"
+            multiple
+            hidden
+            onChange={(event) => void importCredentialFiles(event.target.files, event.currentTarget)}
+          />
           <div className="button-row">
+            <button type="button" className="secondary" onClick={openCredentialPicker}>
+              Importar Archivo(s)
+            </button>
             <button type="button" className="secondary" onClick={() => void probeHostKey()}>
               Descubrir Host Key
             </button>
@@ -785,6 +907,8 @@ export default function App() {
               Usar Known Host
             </button>
           </div>
+          {importedPrivateKey ? <CredentialImportCard title="Private Key" report={importedPrivateKey} /> : null}
+          {importedCertificate ? <CredentialImportCard title="Certificado" report={importedCertificate} /> : null}
           {discoveredHostKey ? (
             <p className="hint">
               {discoveredHostKey.algorithm} · {discoveredHostKey.fingerprintSha256}
@@ -1062,7 +1186,7 @@ export default function App() {
               Rotar Password
             </button>
             <button type="button" className="primary" onClick={connect}>
-              Conectar
+              {activeLaunch && pendingSessionChanges.length > 0 ? 'Reconectar' : 'Conectar'}
             </button>
           </div>
           <p className="hint">{feedback}</p>
@@ -1080,11 +1204,41 @@ export default function App() {
         </aside>
 
         <div className="terminal-card">
-          {activeRequest ? <TerminalView request={activeRequest} /> : <IdleTerminalCard />}
+          {activeLaunch ? (
+            <TerminalView key={activeLaunch.launchId} request={activeLaunch.request} />
+          ) : (
+            <IdleTerminalCard />
+          )}
           {activeMirror ? <MirrorInspector snapshot={activeMirror} /> : null}
         </div>
       </section>
     </main>
+  );
+}
+
+function CredentialImportCard({
+  title,
+  report,
+}: {
+  title: string;
+  report: InspectImportedCredentialResponse;
+}) {
+  return (
+    <section className="credential-card">
+      <h4>{title}</h4>
+      <p>{report.summary}</p>
+      {report.filename ? <p className="hint mono">{report.filename}</p> : null}
+      {report.algorithm ? <p className="hint">Algoritmo: {report.algorithm}</p> : null}
+      {report.fingerprintSha256 ? <p className="hint mono">{report.fingerprintSha256}</p> : null}
+      {report.keyId ? <p className="hint">Key ID: {report.keyId}</p> : null}
+      {report.principals.length > 0 ? <p className="hint">Principals: {report.principals.join(', ')}</p> : null}
+      {report.validBefore ? (
+        <p className="hint">Valido hasta: {new Date(report.validBefore * 1000).toLocaleString()}</p>
+      ) : null}
+      {report.requiresPassphrase ? (
+        <p className="hint">Define la passphrase en el formulario para validar y usar esta clave.</p>
+      ) : null}
+    </section>
   );
 }
 
@@ -1096,6 +1250,28 @@ function IdleTerminalCard() {
       <p className="hint">La conexion exige una fingerprint SHA-256 o una clave OpenSSH del servidor.</p>
     </div>
   );
+}
+
+function buildSessionRequest(
+  form: FormState,
+  relayHint?: RelayHint,
+  controlPlane?: ControlPlaneConfig,
+): SshSessionRequest {
+  return {
+    profileName: form.name || `${form.username}@${form.host}`,
+    host: form.host,
+    port: Number(form.port || 22),
+    username: form.username,
+    privateKeyPem: form.privateKeyPem,
+    privateKeyPassphrase: form.privateKeyPassphrase || undefined,
+    certificatePem: form.certificatePem || undefined,
+    knownHostFingerprint: form.knownHostFingerprint || undefined,
+    cols: 120,
+    rows: 34,
+    relayHint,
+    controlPlane,
+    mirrorOwnerId: form.mirrorOwnerId.trim() || undefined,
+  };
 }
 
 function MirrorInspector({ snapshot }: { snapshot: SessionMirrorSnapshot }) {
@@ -1133,6 +1309,77 @@ function upsertKnownHost(entries: KnownHostEntry[], next: KnownHostEntry) {
 
 function findKnownHost(entries: KnownHostEntry[], host: string, port: number) {
   return entries.find((entry) => entry.host === host.trim() && entry.port === port);
+}
+
+function structurallyEquivalentSessionRequest(a: SshSessionRequest, b: SshSessionRequest) {
+  return (
+    a.host === b.host &&
+    a.port === b.port &&
+    a.username === b.username &&
+    a.privateKeyPem === b.privateKeyPem &&
+    a.privateKeyPassphrase === b.privateKeyPassphrase &&
+    a.certificatePem === b.certificatePem &&
+    a.knownHostFingerprint === b.knownHostFingerprint &&
+    relayHintEquals(a.relayHint, b.relayHint) &&
+    controlPlaneEquals(a.controlPlane, b.controlPlane)
+  );
+}
+
+function describeStructuralSessionChanges(active: SshSessionRequest, draft: SshSessionRequest) {
+  const changes: string[] = [];
+
+  if (active.host !== draft.host || active.port !== draft.port) {
+    changes.push('destino');
+  }
+  if (active.username !== draft.username) {
+    changes.push('usuario');
+  }
+  if (active.privateKeyPem !== draft.privateKeyPem || active.privateKeyPassphrase !== draft.privateKeyPassphrase) {
+    changes.push('clave');
+  }
+  if (active.certificatePem !== draft.certificatePem) {
+    changes.push('certificado');
+  }
+  if (active.knownHostFingerprint !== draft.knownHostFingerprint) {
+    changes.push('host key');
+  }
+  if (!relayHintEquals(active.relayHint, draft.relayHint)) {
+    changes.push('relay');
+  }
+  if (!controlPlaneEquals(active.controlPlane, draft.controlPlane)) {
+    changes.push('control-plane');
+  }
+
+  return changes;
+}
+
+function relayHintEquals(a?: RelayHint, b?: RelayHint) {
+  if (!a && !b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+
+  return a.relayUrl === b.relayUrl && a.token === b.token && a.targetNodeId === b.targetNodeId;
+}
+
+function controlPlaneEquals(a?: ControlPlaneConfig, b?: ControlPlaneConfig) {
+  if (!a && !b) {
+    return true;
+  }
+  if (!a || !b) {
+    return false;
+  }
+
+  return (
+    a.baseUrl === b.baseUrl &&
+    a.accessToken === b.accessToken &&
+    a.environment === b.environment &&
+    a.ttlSeconds === b.ttlSeconds &&
+    a.renewBeforeSeconds === b.renewBeforeSeconds &&
+    a.principals.join(',') === b.principals.join(',')
+  );
 }
 
 function labelForTerminalError(kind: TerminalErrorKind) {
