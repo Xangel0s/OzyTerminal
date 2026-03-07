@@ -87,6 +87,30 @@ pub struct SaveSharedVaultRequest {
     pub expected_version: Option<u64>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertSharedVaultServerRequest {
+    pub actor_id: String,
+    pub expected_version: Option<u64>,
+    pub parent_id: Option<String>,
+    pub node_id: Option<String>,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub known_host_fingerprint: Option<String>,
+    pub relay_target_node_id: Option<String>,
+    pub environment: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSharedVaultNodeRequest {
+    pub actor_id: String,
+    pub expected_version: Option<u64>,
+    pub node_id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedVaultResponse {
@@ -354,6 +378,89 @@ pub fn bootstrap_demo_shared_vault(actor_id: &str) -> Result<SharedVaultResponse
     })
 }
 
+pub fn upsert_shared_vault_server(
+    request: UpsertSharedVaultServerRequest,
+) -> Result<SharedVaultResponse> {
+    let response = load_shared_vault()?;
+    let current_version = response.vault.version;
+    let mut vault = response.vault;
+    if let Some(expected_version) = request.expected_version {
+        if expected_version != vault.version {
+            return Err(anyhow!(
+                "shared vault version mismatch: expected {expected_version}, current {}",
+                vault.version
+            ));
+        }
+    }
+
+    let server_node = VaultNode {
+        id: request
+            .node_id
+            .clone()
+            .unwrap_or_else(|| Uuid::new_v4().to_string()),
+        kind: VaultNodeKind::Server,
+        name: request.name.trim().to_string(),
+        inherit_permissions: true,
+        permissions: Vec::new(),
+        children: Vec::new(),
+        server: Some(SharedServerConfig {
+            host: request.host.trim().to_string(),
+            port: request.port,
+            username: request.username.trim().to_string(),
+            known_host_fingerprint: request
+                .known_host_fingerprint
+                .and_then(|value| non_empty(value)),
+            relay_target_node_id: request
+                .relay_target_node_id
+                .and_then(|value| non_empty(value)),
+            environment: request.environment.and_then(|value| non_empty(value)),
+        }),
+    };
+    validate_node(&server_node)?;
+
+    if node_exists(&vault.root, &server_node.id) {
+        replace_node(&mut vault.root, server_node)?;
+    } else {
+        let parent_id = request.parent_id.as_deref().unwrap_or("root");
+        insert_child_node(&mut vault.root, parent_id, server_node)?;
+    }
+
+    save_shared_vault(SaveSharedVaultRequest {
+        actor_id: request.actor_id,
+        vault,
+        expected_version: Some(current_version),
+    })
+}
+
+pub fn delete_shared_vault_node(
+    request: DeleteSharedVaultNodeRequest,
+) -> Result<SharedVaultResponse> {
+    let response = load_shared_vault()?;
+    let current_version = response.vault.version;
+    let mut vault = response.vault;
+    if let Some(expected_version) = request.expected_version {
+        if expected_version != vault.version {
+            return Err(anyhow!(
+                "shared vault version mismatch: expected {expected_version}, current {}",
+                vault.version
+            ));
+        }
+    }
+    let node_id = request.node_id.trim();
+    if node_id.is_empty() || node_id == vault.root.id {
+        return Err(anyhow!("shared vault nodeId is invalid"));
+    }
+    if !remove_child_node(&mut vault.root, node_id) {
+        return Err(anyhow!("shared vault node {node_id} was not found"));
+    }
+
+    save_shared_vault(SaveSharedVaultRequest {
+        actor_id: request.actor_id,
+        vault,
+        expected_version: Some(current_version),
+    })
+}
+
 pub fn resolve_effective_permissions(path: &[&VaultNode], actor_ids: &[String]) -> HashSet<String> {
     let mut allowed = HashSet::new();
     let mut denied = HashSet::new();
@@ -433,6 +540,56 @@ fn visit_node<'a>(
 
 fn subject_matches(subject: &PermissionSubject, actor_ids: &HashSet<&str>) -> bool {
     subject.id == "*" || actor_ids.contains(subject.id.as_str()) || subject.subject_type == "anyone"
+}
+
+fn node_exists(node: &VaultNode, node_id: &str) -> bool {
+    if node.id == node_id {
+        return true;
+    }
+    node.children
+        .iter()
+        .any(|child| node_exists(child, node_id))
+}
+
+fn replace_node(node: &mut VaultNode, next: VaultNode) -> Result<()> {
+    if node.id == next.id {
+        *node = next;
+        return Ok(());
+    }
+    for child in &mut node.children {
+        if node_exists(child, &next.id) {
+            return replace_node(child, next);
+        }
+    }
+    Err(anyhow!("shared vault node {} was not found", next.id))
+}
+
+fn insert_child_node(node: &mut VaultNode, parent_id: &str, child: VaultNode) -> Result<()> {
+    if node.id == parent_id {
+        if !matches!(node.kind, VaultNodeKind::Folder) {
+            return Err(anyhow!("shared vault parent node must be a folder"));
+        }
+        node.children.push(child);
+        return Ok(());
+    }
+    for current_child in &mut node.children {
+        if insert_child_node(current_child, parent_id, child.clone()).is_ok() {
+            return Ok(());
+        }
+    }
+    Err(anyhow!(
+        "shared vault parent node {parent_id} was not found"
+    ))
+}
+
+fn remove_child_node(node: &mut VaultNode, node_id: &str) -> bool {
+    if let Some(index) = node.children.iter().position(|child| child.id == node_id) {
+        node.children.remove(index);
+        return true;
+    }
+    node.children
+        .iter_mut()
+        .any(|child| remove_child_node(child, node_id))
 }
 
 fn normalize_actor_ids(actor_ids: Vec<String>) -> Vec<String> {
@@ -561,6 +718,14 @@ fn default_inherit_permissions() -> bool {
     true
 }
 
+fn non_empty(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
@@ -577,20 +742,14 @@ fn unix_timestamp() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        bootstrap_demo_shared_vault, list_shared_vault_entries, load_shared_vault,
-        resolve_effective_permissions, save_shared_vault, ListSharedVaultEntriesRequest,
+        bootstrap_demo_shared_vault, delete_shared_vault_node, list_shared_vault_entries,
+        load_shared_vault, resolve_effective_permissions, save_shared_vault,
+        upsert_shared_vault_server, DeleteSharedVaultNodeRequest, ListSharedVaultEntriesRequest,
         PermissionEffect, PermissionRule, PermissionSubject, SaveSharedVaultRequest,
-        SharedServerConfig, SharedVault, VaultNode, VaultNodeKind,
+        SharedServerConfig, SharedVault, UpsertSharedVaultServerRequest, VaultNode, VaultNodeKind,
     };
-    use std::{
-        path::PathBuf,
-        sync::{Mutex, OnceLock},
-    };
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
+    use crate::collab::test_support::lock_test_env;
+    use std::path::PathBuf;
 
     fn temp_state_dir() -> PathBuf {
         let path =
@@ -657,7 +816,7 @@ mod tests {
 
     #[test]
     fn persists_and_lists_effective_servers() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_test_env();
         let state_dir = temp_state_dir();
         std::env::set_var("OZY_STATE_DIR", &state_dir);
 
@@ -683,7 +842,7 @@ mod tests {
 
     #[test]
     fn bootstraps_demo_vault() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_test_env();
         let state_dir = temp_state_dir();
         std::env::set_var("OZY_STATE_DIR", &state_dir);
         let response = bootstrap_demo_shared_vault("owner-1").unwrap();
@@ -693,6 +852,57 @@ mod tests {
         })
         .unwrap();
         assert_eq!(entries.entries.len(), 2);
+        std::env::remove_var("OZY_STATE_DIR");
+    }
+
+    #[test]
+    fn upserts_and_deletes_shared_vault_server_nodes() {
+        let _guard = lock_test_env();
+        let state_dir = temp_state_dir();
+        std::env::set_var("OZY_STATE_DIR", &state_dir);
+
+        let saved = save_shared_vault(SaveSharedVaultRequest {
+            actor_id: "alice".into(),
+            vault: test_vault(),
+            expected_version: None,
+        })
+        .unwrap();
+        let updated = upsert_shared_vault_server(UpsertSharedVaultServerRequest {
+            actor_id: "alice".into(),
+            expected_version: Some(saved.vault.version),
+            parent_id: Some("root".into()),
+            node_id: None,
+            name: "Server 2".into(),
+            host: "10.0.2.15".into(),
+            port: 22,
+            username: "deploy".into(),
+            known_host_fingerprint: None,
+            relay_target_node_id: Some("node-2".into()),
+            environment: Some("staging".into()),
+        })
+        .unwrap();
+        assert_eq!(updated.vault.version, 2);
+
+        let entries = list_shared_vault_entries(ListSharedVaultEntriesRequest {
+            actor_ids: vec!["alice".into()],
+        })
+        .unwrap();
+        assert_eq!(entries.entries.len(), 2);
+        let node_id = entries
+            .entries
+            .iter()
+            .find(|entry| entry.name == "Server 2")
+            .unwrap()
+            .node_id
+            .clone();
+
+        let deleted = delete_shared_vault_node(DeleteSharedVaultNodeRequest {
+            actor_id: "alice".into(),
+            expected_version: Some(updated.vault.version),
+            node_id,
+        })
+        .unwrap();
+        assert_eq!(deleted.vault.version, 3);
         std::env::remove_var("OZY_STATE_DIR");
     }
 }

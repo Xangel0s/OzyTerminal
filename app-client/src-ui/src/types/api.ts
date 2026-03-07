@@ -138,6 +138,22 @@ export type SharedVaultEntriesResponse = {
   entries: SharedVaultServerView[];
 };
 
+export type CollabAuditEntry = {
+  eventId: string;
+  eventType: string;
+  actorId: string;
+  targetKind: string;
+  targetId: string;
+  summary: string;
+  occurredAt: number;
+  metadata: Record<string, unknown>;
+};
+
+export type CollabAuditEntriesResponse = {
+  auditPath: string;
+  entries: CollabAuditEntry[];
+};
+
 export type MirrorRole = 'owner' | 'editor' | 'viewer';
 
 export type MirrorParticipant = {

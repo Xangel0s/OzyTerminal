@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { TerminalView } from './components/TerminalView';
 import { useTerminalSession } from './hooks/useTerminalSession';
 import type {
+  CollabAuditEntriesResponse,
   ControlPlaneConfig,
   LocalVaultResponse,
   RelayHint,
@@ -38,6 +39,8 @@ type FormState = {
   mirrorOwnerId: string;
   mirrorViewerId: string;
   sharedVaultActorId: string;
+  sharedVaultParentId: string;
+  sharedVaultNodeId: string;
 };
 
 const initialForm: FormState = {
@@ -61,6 +64,8 @@ const initialForm: FormState = {
   mirrorOwnerId: 'local-operator',
   mirrorViewerId: 'auditor-1',
   sharedVaultActorId: 'local-operator',
+  sharedVaultParentId: 'root',
+  sharedVaultNodeId: '',
 };
 
 export default function App() {
@@ -78,6 +83,8 @@ export default function App() {
   const [sharedVaultEntries, setSharedVaultEntries] = useState<SharedVaultServerView[]>([]);
   const [sessionMirrors, setSessionMirrors] = useState<SessionMirrorSummary[]>([]);
   const [activeMirror, setActiveMirror] = useState<SessionMirrorSnapshot | null>(null);
+  const [collabAuditPath, setCollabAuditPath] = useState('');
+  const [collabAuditEntries, setCollabAuditEntries] = useState<CollabAuditEntriesResponse['entries']>([]);
   const [feedback, setFeedback] = useState('vault local listo');
 
   const activeRelay = useMemo<RelayHint | undefined>(() => {
@@ -175,6 +182,8 @@ export default function App() {
       mirrorOwnerId: form.mirrorOwnerId,
       mirrorViewerId: form.mirrorViewerId,
       sharedVaultActorId: form.sharedVaultActorId,
+      sharedVaultParentId: form.sharedVaultParentId,
+      sharedVaultNodeId: form.sharedVaultNodeId,
     });
     setIssuedCertificate(null);
     setIssuedRelayLease(null);
@@ -397,7 +406,83 @@ export default function App() {
     updateField('username', entry.username);
     updateField('knownHostFingerprint', entry.knownHostFingerprint ?? '');
     updateField('relayTargetNodeId', entry.relayTargetNodeId ?? '');
+    updateField('sharedVaultNodeId', entry.nodeId);
     setFeedback(`perfil aplicado desde shared vault: ${entry.name}`);
+  }
+
+  async function upsertSharedVaultServer() {
+    const actorId = form.sharedVaultActorId.trim();
+    if (!actorId) {
+      setFeedback('define el actor que edita el shared vault');
+      return;
+    }
+    if (!form.name.trim() || !form.host.trim() || !form.username.trim()) {
+      setFeedback('nombre, host y usuario son obligatorios para guardar en shared vault');
+      return;
+    }
+
+    try {
+      const response = await invoke<SharedVaultResponse>('upsert_shared_vault_server_command', {
+        request: {
+          actorId,
+          expectedVersion: sharedVault?.vault.version,
+          parentId: form.sharedVaultParentId.trim() || 'root',
+          nodeId: form.sharedVaultNodeId.trim() || undefined,
+          name: form.name.trim(),
+          host: form.host.trim(),
+          port: Number(form.port || 22),
+          username: form.username.trim(),
+          knownHostFingerprint: form.knownHostFingerprint.trim() || undefined,
+          relayTargetNodeId: form.relayTargetNodeId.trim() || undefined,
+          environment: form.controlPlaneEnvironment.trim() || undefined,
+        },
+      });
+
+      setSharedVault(response);
+      await listSharedVaultEntries(actorId, response);
+      setFeedback(`shared vault actualizado: ${form.name.trim()}`);
+    } catch (error) {
+      setFeedback(String(error));
+    }
+  }
+
+  async function deleteSharedVaultNode() {
+    const actorId = form.sharedVaultActorId.trim();
+    const nodeId = form.sharedVaultNodeId.trim();
+    if (!actorId || !nodeId) {
+      setFeedback('define actor y selecciona un nodeId del shared vault para eliminar');
+      return;
+    }
+
+    try {
+      const response = await invoke<SharedVaultResponse>('delete_shared_vault_node_command', {
+        request: {
+          actorId,
+          expectedVersion: sharedVault?.vault.version,
+          nodeId,
+        },
+      });
+
+      setSharedVault(response);
+      setSharedVaultEntries((current) => current.filter((entry) => entry.nodeId !== nodeId));
+      updateField('sharedVaultNodeId', '');
+      setFeedback(`shared vault eliminó el nodo ${nodeId}`);
+    } catch (error) {
+      setFeedback(String(error));
+    }
+  }
+
+  async function loadCollabAudit() {
+    try {
+      const response = await invoke<CollabAuditEntriesResponse>('list_collab_audit_entries_command', {
+        request: { limit: 20 },
+      });
+      setCollabAuditEntries(response.entries);
+      setCollabAuditPath(response.auditPath);
+      setFeedback(`audit colaborativo cargado: ${response.entries.length} evento(s)`);
+    } catch (error) {
+      setFeedback(String(error));
+    }
   }
 
   async function shareActiveSessionMirror() {
@@ -688,6 +773,22 @@ export default function App() {
 
           <h3>Shared Vault</h3>
           <div className="form-grid">
+            <label>
+              <span>Parent Node</span>
+              <input
+                value={form.sharedVaultParentId}
+                onChange={(event) => updateField('sharedVaultParentId', event.target.value)}
+                placeholder="root"
+              />
+            </label>
+            <label>
+              <span>Node ID</span>
+              <input
+                value={form.sharedVaultNodeId}
+                onChange={(event) => updateField('sharedVaultNodeId', event.target.value)}
+                placeholder="auto si es nuevo"
+              />
+            </label>
             <label className="full-width">
               <span>Actor ACL</span>
               <input
@@ -706,6 +807,15 @@ export default function App() {
             </button>
             <button type="button" className="secondary" onClick={() => void listSharedVaultEntries()}>
               Resolver ACL
+            </button>
+            <button type="button" className="secondary" onClick={() => void upsertSharedVaultServer()}>
+              Guardar Servidor
+            </button>
+            <button type="button" className="secondary" onClick={() => void deleteSharedVaultNode()}>
+              Eliminar Nodo
+            </button>
+            <button type="button" className="secondary" onClick={() => void loadCollabAudit()}>
+              Ver Audit
             </button>
           </div>
           {sharedVault ? (
@@ -726,6 +836,18 @@ export default function App() {
                   <span>{entry.username}@{entry.host}:{entry.port}</span>
                   <span>{entry.effectiveActions.join(', ')}</span>
                 </button>
+              ))}
+            </div>
+          ) : null}
+          {collabAuditPath ? <p className="hint mono">{collabAuditPath}</p> : null}
+          {collabAuditEntries.length > 0 ? (
+            <div className="vault-list">
+              {collabAuditEntries.map((entry) => (
+                <div key={entry.eventId} className="vault-item">
+                  <strong>{entry.eventType}</strong>
+                  <span>{entry.actorId} · {entry.targetKind}</span>
+                  <span>{entry.summary}</span>
+                </div>
               ))}
             </div>
           ) : null}

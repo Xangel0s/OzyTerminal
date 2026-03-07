@@ -12,12 +12,15 @@ pub fn run() {
         .manage(app_state::AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::collab::bootstrap_demo_shared_vault_command,
+            commands::collab::delete_shared_vault_node_command,
             commands::collab::get_session_mirror_command,
+            commands::collab::list_collab_audit_entries_command,
             commands::collab::list_session_mirrors_command,
             commands::collab::list_shared_vault_entries_command,
             commands::collab::load_shared_vault_command,
             commands::collab::save_shared_vault_command,
             commands::collab::share_session_mirror_command,
+            commands::collab::upsert_shared_vault_server_command,
             commands::control_plane::issue_relay_lease_command,
             commands::control_plane::issue_ssh_certificate_command,
             commands::session::open_session,

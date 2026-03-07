@@ -19,6 +19,7 @@ This repository is not a static mock anymore. It already contains a working base
 - `agent-node` registration plus reverse proxy to local SSH
 - Shared vault persisted on disk with effective ACL resolution
 - Read-only session mirror for authorized viewers
+- Collaboration audit trail persisted as JSONL
 
 ## Architecture
 
@@ -117,6 +118,14 @@ cd app-client
 npm run tauri dev
 ```
 
+### 6. Or use the demo helper script
+
+```powershell
+.\scripts\demo-stack.ps1 -Role control-plane
+.\scripts\demo-stack.ps1 -Role agent -NodeId demo-node-1
+.\scripts\demo-stack.ps1 -Role client
+```
+
 ## Collaboration Baseline
 
 ### Shared Vault
@@ -128,6 +137,7 @@ The shared vault is stored locally as JSON and currently provides:
 - revision log appends
 - path-based ACL resolution with allow/deny rules
 - server listing filtered by effective permissions
+- server upsert/delete flow from the UI
 - demo bootstrap from the UI
 
 ### Session Mirror
@@ -139,8 +149,20 @@ The session mirror currently provides:
 - explicit viewer/editor sharing
 - read-only mirror snapshots for authorized actors
 - mirror listing in the UI
+- collaboration audit entries for share/view actions
 
 This is intentionally a baseline. It proves the product flow without pretending the collaboration plane is fully hardened yet.
+
+### Collaboration Audit
+
+The app also writes a local collaboration audit log for:
+
+- shared vault saves and bootstrap
+- shared vault node upsert/delete actions
+- session mirror share actions
+- session mirror read access
+
+The current store is JSONL so it stays easy to inspect and automate against.
 
 ## Important Environment Variables
 
@@ -198,7 +220,6 @@ The next engineering layer is not "make SSH work". That part already works.
 
 The next layer is:
 
-- stronger collaborative audit trails
 - richer shared-vault editing UX
 - better mirror observability and retention
 - packaging the end-to-end demo as a repeatable operator flow
