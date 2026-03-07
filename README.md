@@ -177,6 +177,7 @@ The local client now also provides:
 - encrypted `known_hosts` persistence inside the local vault
 - automatic reuse of trusted fingerprints for the same host and port
 - recent-connection history persisted without private keys or tokens
+- classified session diagnostics for host-key, auth, relay, control-plane, shell, and network failures
 
 ## Important Environment Variables
 
@@ -217,7 +218,7 @@ As of 2026-03-07:
 
 - Fase 0 a Fase 5: baseline funcional cerrada
 - Fase 6: baseline funcional cerrada
-- Fase 7: parcial, pero ya incluye onboarding de host key, `known_hosts`, recientes y demo reproducible por script
+- Fase 7: baseline funcional cerrada, con demo reproducible, trust local, relay/control-plane y diagnostico clasificado de errores
 
 ## Repository Map
 
@@ -235,6 +236,7 @@ The next engineering layer is not "make SSH work". That part already works.
 The next layer is:
 
 - richer shared-vault editing UX
-- better mirror observability and retention
+- better mirror observability, retention, and admin queries
 - packaging the end-to-end demo as a repeatable operator flow
 - hardening auth, policy, and identity around collaboration
+- multi-session UX and assisted key/certificate import

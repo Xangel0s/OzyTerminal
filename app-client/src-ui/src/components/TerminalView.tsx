@@ -2,8 +2,8 @@ import { useEffect, useRef } from 'react';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { setSessionSnapshot } from '../store/sessionStore';
-import type { SshSessionRequest, TerminalEvent } from '../types/api';
+import { getSessionSnapshot, setSessionSnapshot } from '../store/sessionStore';
+import type { SshSessionRequest, TerminalErrorPayload, TerminalEvent } from '../types/api';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -22,6 +22,15 @@ function base64ToText(input: string): string {
   return decoder.decode(bytes);
 }
 
+function fallbackTerminalError(message: string): TerminalErrorPayload {
+  return {
+    kind: 'unknown',
+    title: 'La sesion fallo antes de abrirse',
+    detail: message,
+    retryable: true,
+  };
+}
+
 export function TerminalView({ request }: { request: SshSessionRequest }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -33,7 +42,12 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
     }
 
     sessionIdRef.current = null;
-    setSessionSnapshot({ sessionId: null, status: 'connecting', message: 'opening ssh session' });
+    setSessionSnapshot({
+      sessionId: null,
+      status: 'connecting',
+      message: 'opening ssh session',
+      error: null,
+    });
 
     const terminal = new Terminal({
       cursorBlink: true,
@@ -60,7 +74,12 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
       switch (event.type) {
         case 'connected':
           sessionIdRef.current = event.session_id;
-          setSessionSnapshot({ sessionId: event.session_id, status: 'connected', message: 'connected' });
+          setSessionSnapshot({
+            sessionId: event.session_id,
+            status: 'connected',
+            message: 'connected',
+            error: null,
+          });
           terminal.writeln('[connected] ssh session established');
           void invoke('record_recent_connection_command', {
             request: {
@@ -77,12 +96,18 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
           terminal.write(base64ToText(event.chunk_b64));
           break;
         case 'closed':
-          setSessionSnapshot({ status: 'closed', message: event.reason });
+          if (getSessionSnapshot().status !== 'error') {
+            setSessionSnapshot({ status: 'closed', message: event.reason, error: null });
+          }
           terminal.writeln(`\r\n[closed] ${event.reason}`);
           break;
         case 'error':
-          setSessionSnapshot({ status: 'error', message: event.message });
-          terminal.writeln(`\r\n[error] ${event.message}`);
+          setSessionSnapshot({ status: 'error', message: event.error.title, error: event.error });
+          terminal.writeln(`\r\n[${event.error.kind}] ${event.error.title}`);
+          terminal.writeln(`\r\n${event.error.detail}`);
+          if (event.error.suggestion) {
+            terminal.writeln(`\r\n[suggestion] ${event.error.suggestion}`);
+          }
           break;
       }
     };
@@ -100,8 +125,10 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
       })
       .catch((error) => {
         const message = String(error);
-        setSessionSnapshot({ status: 'error', message });
-        terminal.writeln(`\r\n[error] ${message}`);
+        const payload = fallbackTerminalError(message);
+        setSessionSnapshot({ status: 'error', message: payload.title, error: payload });
+        terminal.writeln(`\r\n[${payload.kind}] ${payload.title}`);
+        terminal.writeln(`\r\n${payload.detail}`);
       });
 
     const dataDisposable = terminal.onData((data) => {
@@ -141,7 +168,7 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
         void invoke('close_session', { sessionId });
       }
 
-      setSessionSnapshot({ status: 'closed', message: 'disposed' });
+      setSessionSnapshot({ status: 'closed', message: 'disposed', error: null });
     };
   }, [request]);
 

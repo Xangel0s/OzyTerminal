@@ -219,8 +219,27 @@ export type SessionMirrorSnapshot = {
   transcript: string;
 };
 
+export type TerminalErrorKind =
+  | 'configuration'
+  | 'connection'
+  | 'host_key'
+  | 'authentication'
+  | 'control_plane'
+  | 'relay'
+  | 'certificate'
+  | 'shell'
+  | 'unknown';
+
+export type TerminalErrorPayload = {
+  kind: TerminalErrorKind;
+  title: string;
+  detail: string;
+  suggestion?: string;
+  retryable: boolean;
+};
+
 export type TerminalEvent =
   | { type: 'connected'; session_id: string }
   | { type: 'stdout'; chunk_b64: string }
   | { type: 'closed'; reason: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; error: TerminalErrorPayload };

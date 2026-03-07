@@ -1,13 +1,17 @@
+import type { TerminalErrorPayload } from '../types/api';
+
 type SessionSnapshot = {
   sessionId: string | null;
   status: 'idle' | 'connecting' | 'connected' | 'closed' | 'error';
   message: string;
+  error: TerminalErrorPayload | null;
 };
 
 let snapshot: SessionSnapshot = {
   sessionId: null,
   status: 'idle',
   message: 'ready',
+  error: null,
 };
 
 const listeners = new Set<() => void>();

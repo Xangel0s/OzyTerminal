@@ -6,7 +6,9 @@ use uuid::Uuid;
 
 use crate::app_state::{AppState, SessionHandle};
 use crate::core::session_manager::remove_session;
-use crate::core::ssh_client::{connect_ssh, SshSessionRequest, TerminalEvent, TerminalInput};
+use crate::core::ssh_client::{
+    classify_terminal_error, connect_ssh, SshSessionRequest, TerminalEvent, TerminalInput,
+};
 
 #[tauri::command]
 pub async fn open_session(
@@ -49,7 +51,7 @@ pub async fn open_session(
         let result = connect_ssh(session_id, request, input_rx, event_tx.clone()).await;
         if let Err(err) = result {
             let _ = event_tx.send(TerminalEvent::Error {
-                message: err.to_string(),
+                error: classify_terminal_error(&err),
             });
             let _ = event_tx.send(TerminalEvent::Closed {
                 reason: "session failed".into(),
@@ -72,7 +74,9 @@ fn record_session_mirror_event(state: &AppState, session_id: Uuid, event: &Termi
             }
         }
         TerminalEvent::Closed { reason } => mirrors.mark_closed(session_id, reason),
-        TerminalEvent::Error { message } => mirrors.mark_error(session_id, message),
+        TerminalEvent::Error { error } => {
+            mirrors.mark_error(session_id, &format!("{}: {}", error.title, error.detail))
+        }
     }
 }
 

@@ -142,6 +142,49 @@ body {
   margin: 8px 0 0;
 }
 
+.diagnostic-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.diagnostic-card p {
+  margin: 0;
+}
+
+.diagnostic-kind {
+  display: inline-flex;
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  border: 1px solid currentColor;
+}
+
+.diagnostic-authentication,
+.diagnostic-host_key,
+.diagnostic-certificate {
+  color: #ffbcae;
+}
+
+.diagnostic-connection,
+.diagnostic-relay,
+.diagnostic-control_plane,
+.diagnostic-shell {
+  color: #ffd98c;
+}
+
+.diagnostic-configuration,
+.diagnostic-unknown {
+  color: var(--muted);
+}
+
 .status-pill {
   display: inline-flex;
   padding: 6px 10px;

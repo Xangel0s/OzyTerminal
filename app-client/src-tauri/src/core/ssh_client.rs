@@ -51,13 +51,37 @@ pub enum TerminalInput {
     Close,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalErrorKind {
+    Configuration,
+    Connection,
+    HostKey,
+    Authentication,
+    ControlPlane,
+    Relay,
+    Certificate,
+    Shell,
+    Unknown,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalErrorPayload {
+    pub kind: TerminalErrorKind,
+    pub title: String,
+    pub detail: String,
+    pub suggestion: Option<String>,
+    pub retryable: bool,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TerminalEvent {
     Connected { session_id: Uuid },
     Stdout { chunk_b64: String },
     Closed { reason: String },
-    Error { message: String },
+    Error { error: TerminalErrorPayload },
 }
 
 #[derive(Debug, Default)]
@@ -105,12 +129,20 @@ pub async fn connect_ssh(
         expected_host_fingerprint: request.known_host_fingerprint.clone(),
     };
 
-    let resolved_relay = resolve_relay_hint(&request, &event_tx).await?;
+    let resolved_relay = resolve_relay_hint(&request, &event_tx)
+        .await
+        .context("relay resolution failed")?;
     let mut session = if let Some(relay) = resolved_relay.as_ref() {
-        let stream = connect_via_relay(relay).await?;
-        client::connect_stream(config, stream, handler).await?
+        let stream = connect_via_relay(relay)
+            .await
+            .context("relay data connection failed")?;
+        client::connect_stream(config, stream, handler)
+            .await
+            .context("ssh handshake failed over relay")?
     } else {
-        client::connect(config, (request.host.as_str(), request.port), handler).await?
+        client::connect(config, (request.host.as_str(), request.port), handler)
+            .await
+            .context("ssh handshake failed")?
     };
 
     let private_key = Arc::new(load_private_key(
@@ -118,7 +150,9 @@ pub async fn connect_ssh(
         request.private_key_passphrase.as_deref(),
     )?);
 
-    let certificate_pem = resolve_certificate_pem(&request, &event_tx).await?;
+    let certificate_pem = resolve_certificate_pem(&request, &event_tx)
+        .await
+        .context("certificate resolution failed")?;
 
     authenticate_session(
         &mut session,
@@ -126,13 +160,21 @@ pub async fn connect_ssh(
         private_key.clone(),
         certificate_pem.as_deref(),
     )
-    .await?;
+    .await
+    .context("ssh authentication failed")?;
 
-    let mut channel = session.channel_open_session().await?;
+    let mut channel = session
+        .channel_open_session()
+        .await
+        .context("ssh shell channel open failed")?;
     channel
         .request_pty(false, DEFAULT_TERM, request.cols, request.rows, 0, 0, &[])
-        .await?;
-    channel.request_shell(true).await?;
+        .await
+        .context("ssh pty request failed")?;
+    channel
+        .request_shell(true)
+        .await
+        .context("ssh shell request failed")?;
 
     let _ = event_tx.send(TerminalEvent::Connected { session_id });
     let _ = event_tx.send(TerminalEvent::Stdout {
@@ -150,10 +192,16 @@ pub async fn connect_ssh(
             input = input_rx.recv() => {
                 match input {
                     Some(TerminalInput::Stdin(chunk)) => {
-                        channel.data(chunk.as_ref()).await?;
+                        channel
+                            .data(chunk.as_ref())
+                            .await
+                            .context("failed to forward stdin to ssh channel")?;
                     }
                     Some(TerminalInput::Resize { cols, rows }) => {
-                        channel.window_change(cols as u32, rows as u32, 0, 0).await?;
+                        channel
+                            .window_change(cols as u32, rows as u32, 0, 0)
+                            .await
+                            .context("failed to resize ssh pty")?;
                     }
                     Some(TerminalInput::Close) => {
                         let _ = channel.eof().await;
@@ -205,6 +253,137 @@ pub async fn connect_ssh(
     }
 
     Ok(())
+}
+
+pub fn classify_terminal_error(error: &anyhow::Error) -> TerminalErrorPayload {
+    let detail = format_error_detail(error);
+    let haystack = detail.to_lowercase();
+
+    let (kind, title, suggestion, retryable) = if haystack.contains("failed to decode private key")
+        || haystack.contains("private key load failed")
+    {
+        (
+            TerminalErrorKind::Configuration,
+            "La clave privada no se pudo cargar",
+            Some("Revisa el PEM y la passphrase antes de volver a conectar."),
+            false,
+        )
+    } else if haystack.contains("failed to load openssh certificate")
+        || haystack.contains("failed to parse existing openssh certificate")
+        || haystack.contains("certificate resolution failed")
+    {
+        (
+            TerminalErrorKind::Certificate,
+            "El certificado SSH no es valido",
+            Some(
+                "Emite un certificado nuevo o limpia el certificado guardado antes de reintentar.",
+            ),
+            false,
+        )
+    } else if haystack.contains("certificate authentication failed")
+        || haystack.contains("public key authentication failed")
+        || haystack.contains("ssh authentication failed")
+        || haystack.contains("permission denied")
+    {
+        (
+            TerminalErrorKind::Authentication,
+            "El servidor rechazo la autenticacion",
+            Some("Confirma usuario, clave privada, certificado y principals antes de reintentar."),
+            false,
+        )
+    } else if haystack.contains("unknown key")
+        || haystack.contains("unknownkey")
+        || haystack.contains("server key")
+        || haystack.contains("host key")
+        || haystack.contains("fingerprint")
+    {
+        (
+            TerminalErrorKind::HostKey,
+            "La host key no coincide con la esperada",
+            Some("Vuelve a descubrir la host key y confiala explicitamente si el servidor es correcto."),
+            false,
+        )
+    } else if haystack.contains("failed to call control-plane")
+        || haystack.contains("invalid control-plane bearer token")
+        || haystack.contains("control-plane base url is required")
+        || haystack.contains("control-plane returned http 401")
+        || haystack.contains("control-plane returned http 403")
+    {
+        (
+            TerminalErrorKind::ControlPlane,
+            "El control-plane rechazo o no pudo atender la solicitud",
+            Some("Verifica la base URL, el bearer token y que el servicio este disponible."),
+            true,
+        )
+    } else if haystack.contains("relay resolution failed")
+        || haystack.contains("relay data connection failed")
+        || haystack.contains("failed to connect to relay")
+        || haystack.contains("failed to send relay hello")
+        || haystack.contains("relay target node")
+        || haystack.contains("relay token")
+        || haystack.contains("relay_url")
+    {
+        (
+            TerminalErrorKind::Relay,
+            "No se pudo preparar el relay para la sesion",
+            Some("Revisa target node, lease/token y la conectividad hacia el relay antes de reintentar."),
+            true,
+        )
+    } else if haystack.contains("ssh shell")
+        || haystack.contains("ssh pty request failed")
+        || haystack.contains("channel open")
+        || haystack.contains("failed to forward stdin")
+        || haystack.contains("failed to resize ssh pty")
+    {
+        (
+            TerminalErrorKind::Shell,
+            "La sesion SSH no pudo abrir un shell interactivo",
+            Some("Confirma que el servidor permite PTY y shell para esta cuenta."),
+            true,
+        )
+    } else if haystack.contains("ssh handshake failed")
+        || haystack.contains("connection refused")
+        || haystack.contains("timed out")
+        || haystack.contains("dns")
+        || haystack.contains("no such host")
+        || haystack.contains("failed to lookup address")
+        || haystack.contains("network is unreachable")
+        || haystack.contains("connection reset")
+    {
+        (
+            TerminalErrorKind::Connection,
+            "No se pudo establecer la conexion SSH",
+            Some("Verifica host, puerto, DNS y conectividad de red antes de reintentar."),
+            true,
+        )
+    } else {
+        (
+            TerminalErrorKind::Unknown,
+            "La sesion fallo por una condicion no clasificada",
+            Some("Revisa el detalle completo en la UI o en los logs locales antes de reintentar."),
+            true,
+        )
+    };
+
+    TerminalErrorPayload {
+        kind,
+        title: title.to_string(),
+        detail,
+        suggestion: suggestion.map(str::to_string),
+        retryable,
+    }
+}
+
+fn format_error_detail(error: &anyhow::Error) -> String {
+    let mut messages = Vec::new();
+    for cause in error.chain() {
+        let message = cause.to_string();
+        if messages.last() != Some(&message) {
+            messages.push(message);
+        }
+    }
+
+    messages.join(": ")
 }
 
 fn load_private_key(private_key_pem: &str, passphrase: Option<&str>) -> Result<keys::PrivateKey> {
@@ -265,7 +444,8 @@ async fn resolve_certificate_pem(
         control_plane,
         reuse_if_fresh: Some(true),
     })
-    .await?;
+    .await
+    .context("failed to issue or reuse ssh certificate from control-plane")?;
 
     let source = match resolved.source {
         crate::core::control_plane::CertificateSource::Existing => "reused",
@@ -309,7 +489,8 @@ async fn resolve_relay_hint(
         purpose: Some("ssh".into()),
         control_plane,
     })
-    .await?;
+    .await
+    .context("failed to issue relay lease from control-plane")?;
 
     let _ = event_tx.send(TerminalEvent::Stdout {
         chunk_b64: encode_chunk(Bytes::from(format!(
@@ -327,7 +508,10 @@ async fn resolve_relay_hint(
 
 #[cfg(test)]
 mod tests {
-    use super::{connect_ssh, SshSessionRequest, TerminalEvent, TerminalInput};
+    use super::{
+        classify_terminal_error, connect_ssh, SshSessionRequest, TerminalErrorKind, TerminalEvent,
+        TerminalInput,
+    };
     use crate::core::control_plane::ControlPlaneConfig;
     use axum::{
         extract::State,
@@ -901,6 +1085,32 @@ mod tests {
                 request.principals
             },
         }))
+    }
+
+    #[test]
+    fn classifies_authentication_errors() {
+        let payload = classify_terminal_error(&anyhow::anyhow!(
+            "ssh authentication failed: public key authentication failed"
+        ));
+        assert_eq!(payload.kind, TerminalErrorKind::Authentication);
+        assert!(!payload.retryable);
+    }
+
+    #[test]
+    fn classifies_host_key_errors() {
+        let payload =
+            classify_terminal_error(&anyhow::anyhow!("ssh handshake failed: Unknown key"));
+        assert_eq!(payload.kind, TerminalErrorKind::HostKey);
+        assert!(!payload.retryable);
+    }
+
+    #[test]
+    fn classifies_relay_errors() {
+        let payload = classify_terminal_error(&anyhow::anyhow!(
+            "relay data connection failed: failed to connect to relay 127.0.0.1:7444"
+        ));
+        assert_eq!(payload.kind, TerminalErrorKind::Relay);
+        assert!(payload.retryable);
     }
 
     async fn wait_for_connected(events: &mut broadcast::Receiver<TerminalEvent>) -> bool {

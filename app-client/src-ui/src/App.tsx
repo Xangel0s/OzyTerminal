@@ -18,6 +18,7 @@ import type {
   SharedVaultEntriesResponse,
   SharedVaultResponse,
   SharedVaultServerView,
+  TerminalErrorKind,
   SshSessionRequest,
   VaultEntry,
 } from './types/api';
@@ -692,6 +693,15 @@ export default function App() {
             <span className={`status-pill is-${session.status}`}>{session.status}</span>
             <p>{session.message}</p>
             {session.sessionId ? <p className="mono">{session.sessionId}</p> : null}
+            {session.error ? (
+              <div className={`diagnostic-card diagnostic-${session.error.kind}`}>
+                <span className="diagnostic-kind">{labelForTerminalError(session.error.kind)}</span>
+                <strong>{session.error.title}</strong>
+                <p>{session.error.detail}</p>
+                {session.error.suggestion ? <p className="hint">{session.error.suggestion}</p> : null}
+                <p className="hint">{session.error.retryable ? 'Se puede reintentar.' : 'Corrige el problema antes de reintentar.'}</p>
+              </div>
+            ) : null}
           </div>
           {recentConnections.length > 0 ? (
             <>
@@ -1123,6 +1133,29 @@ function upsertKnownHost(entries: KnownHostEntry[], next: KnownHostEntry) {
 
 function findKnownHost(entries: KnownHostEntry[], host: string, port: number) {
   return entries.find((entry) => entry.host === host.trim() && entry.port === port);
+}
+
+function labelForTerminalError(kind: TerminalErrorKind) {
+  switch (kind) {
+    case 'configuration':
+      return 'Configuracion';
+    case 'connection':
+      return 'Conexion';
+    case 'host_key':
+      return 'Host Key';
+    case 'authentication':
+      return 'Auth';
+    case 'control_plane':
+      return 'Control Plane';
+    case 'relay':
+      return 'Relay';
+    case 'certificate':
+      return 'Certificado';
+    case 'shell':
+      return 'Shell';
+    default:
+      return 'No clasificado';
+  }
 }
 
 function splitList(value: string) {
