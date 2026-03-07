@@ -127,6 +127,21 @@ export type InspectImportedCredentialResponse = {
   summary: string;
 };
 
+export type LocalDirectoryEntry = {
+  name: string;
+  path: string;
+  modifiedAt?: number;
+  sizeBytes?: number;
+  kind: string;
+  entryType: 'folder' | 'file' | 'link';
+};
+
+export type LocalDirectoryResponse = {
+  currentPath: string;
+  parentPath?: string;
+  entries: LocalDirectoryEntry[];
+};
+
 export type SharedServerConfig = {
   host: string;
   port: number;

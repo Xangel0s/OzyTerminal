@@ -1,5 +1,6 @@
 pub mod collab;
 pub mod control_plane;
+pub mod filesystem;
 pub mod history;
 pub mod host;
 pub mod import;

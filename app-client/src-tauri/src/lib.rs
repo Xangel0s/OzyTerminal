@@ -5,11 +5,20 @@ pub mod core;
 pub mod crypto;
 pub mod tunnel;
 
+use tauri::Manager;
+
 pub fn run() {
     tracing_subscriber::fmt().with_env_filter("info").init();
 
     tauri::Builder::default()
         .manage(app_state::AppState::default())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+            }
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::collab::bootstrap_demo_shared_vault_command,
             commands::collab::delete_shared_vault_node_command,
@@ -23,6 +32,7 @@ pub fn run() {
             commands::collab::upsert_shared_vault_server_command,
             commands::control_plane::issue_relay_lease_command,
             commands::control_plane::issue_ssh_certificate_command,
+            commands::filesystem::list_local_directory_command,
             commands::history::list_recent_connections_command,
             commands::history::record_recent_connection_command,
             commands::host::probe_ssh_host_key_command,
