@@ -55,7 +55,7 @@ body {
   align-items: center;
   gap: 14px;
   min-height: var(--titlebar-height);
-  padding: 0 8px 0 6px;
+  padding: 4px 10px 0 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   background: #171c22;
   user-select: none;
@@ -77,6 +77,8 @@ body {
   gap: 4px;
   overflow: visible;
   padding-top: 3px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .titlebar-menu-anchor {
@@ -99,12 +101,30 @@ body {
   cursor: pointer;
 }
 
-.titlebar-hamburger span {
+.titlebar-hamburger span:not(.hamburger-chevron) {
   width: 20px;
   height: 2.6px;
   margin-left: 9px;
   border-radius: 999px;
   background: #d4d7dd;
+}
+
+.hamburger-chevron {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 2px;
+  transition: transform 200ms ease;
+}
+
+.hamburger-chevron svg {
+  width: 10px;
+  height: 10px;
+  opacity: 0.5;
+}
+
+.hamburger-chevron.is-open {
+  transform: rotate(180deg);
 }
 
 .titlebar-hamburger:hover {
@@ -191,6 +211,7 @@ body {
   border-radius: 8px 8px 0 0;
   overflow: hidden;
   background: #20262e;
+  animation: tab-appear 250ms ease;
 }
 
 .titlebar-tab-group.is-active {
@@ -207,16 +228,18 @@ body {
 .titlebar-tab {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  padding: 8px 12px;
+  padding: 7px 10px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-bottom: 0;
   border-radius: 8px 8px 0 0;
   background: #20262e;
   color: var(--muted);
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+  transition: background 200ms ease, border-color 200ms ease, color 200ms ease, transform 140ms ease, opacity 200ms ease;
+  animation: tab-appear 250ms ease;
+  flex-shrink: 1;
 }
 
 .titlebar-tab:hover,
@@ -238,15 +261,16 @@ body {
 }
 
 .titlebar-tab-group-main {
-  min-width: 146px;
+  min-width: 110px;
 }
 
 .titlebar-tab-group-extension {
-  border-left: 1px solid rgba(255, 255, 255, 0.07);
+  border-left: 1px solid rgba(255, 255, 255, 0.22);
+  margin-left: 0;
 }
 
 .titlebar-tab-group.is-active .titlebar-tab-group-extension {
-  border-left-color: rgba(255, 255, 255, 0.12);
+  border-left-color: rgba(255, 255, 255, 0.32);
 }
 
 .vault-scope-menu {
@@ -315,32 +339,41 @@ body {
   border-radius: 999px;
   background: #29c26b;
   color: #0e1c13;
-  font-size: 0.82rem;
-  font-weight: 800;
+}
+
+.vault-scope-option-check svg {
+  width: 13px;
+  height: 13px;
 }
 
 .shell-tab-static {
-  min-width: 128px;
+  min-width: 90px;
 }
 
 .titlebar-tab-caret {
-  width: 40px;
+  width: 32px;
   justify-content: center;
   padding-inline: 0;
 }
 
 .titlebar-tab-caret-icon {
-  font-size: 0.9rem;
-  line-height: 1;
-  transform: translateY(-1px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 200ms ease;
+}
+
+.titlebar-tab-caret-icon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .titlebar-tab-caret-icon.is-open {
-  transform: rotate(180deg) translateY(1px);
+  transform: rotate(180deg);
 }
 
 .shell-tab-connection {
-  min-width: 192px;
+  min-width: 130px;
 }
 
 .titlebar-tab-add {
@@ -434,6 +467,12 @@ body {
   text-overflow: ellipsis;
 }
 
+.titlebar-tab-copy strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .titlebar-search {
   display: flex;
   align-items: center;
@@ -490,7 +529,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .titlebar-presence {
@@ -833,6 +872,29 @@ body {
   min-height: 0;
   overflow: auto;
   padding: 18px;
+  animation: workspace-fade-in 280ms ease;
+}
+
+@keyframes workspace-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes tab-appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .terminal-replica-workspace {
@@ -923,6 +985,743 @@ body {
   border-radius: 14px;
   background: #131316;
   overflow: hidden;
+}
+
+/* ── SSH Connect Panel ───────────────────────────────────── */
+
+.ssh-connect-panel {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 32px;
+  min-height: 560px;
+  padding: 48px 28px;
+  border: 1px solid rgba(85, 90, 101, 0.55);
+  border-radius: 14px;
+  background: linear-gradient(170deg, #161c24 0%, #0f1318 100%);
+}
+
+.ssh-connect-header {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.ssh-connect-icon {
+  width: 48px;
+  height: 48px;
+  color: var(--accent-warm);
+  filter: drop-shadow(0 0 18px rgba(214, 162, 91, 0.25));
+}
+
+.ssh-connect-header h2 {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.ssh-connect-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.ssh-connect-form {
+  display: grid;
+  gap: 16px;
+  width: min(380px, 100%);
+}
+
+.ssh-field {
+  display: grid;
+  gap: 7px;
+}
+
+.ssh-field span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ssh-field input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(85, 90, 101, 0.65);
+  border-radius: 12px;
+  background: #1b1e24;
+  color: var(--text);
+  font-size: 0.95rem;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.ssh-field input:focus {
+  border-color: var(--accent-warm);
+  box-shadow: 0 0 0 3px rgba(214, 162, 91, 0.12);
+  outline: none;
+}
+
+.ssh-field input::placeholder {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.ssh-connect-button {
+  width: 100%;
+  padding: 13px 20px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent-warm) 0%, #c8922e 100%);
+  color: #1a1207;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: filter 150ms ease, transform 120ms ease;
+}
+
+.ssh-connect-button:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.ssh-connect-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.ssh-connect-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Connection Timeline ─────────────────────────────────── */
+
+.connection-timeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: min(420px, 100%);
+  padding: 8px 0;
+}
+
+.timeline-node {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  z-index: 1;
+}
+
+.timeline-node-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  border: 2px solid rgba(85, 90, 101, 0.5);
+  background: #1e2228;
+  color: #6b7280;
+  transition: border-color 400ms ease, background 400ms ease, color 400ms ease, box-shadow 400ms ease;
+}
+
+.timeline-node-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.timeline-node-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+  transition: color 400ms ease;
+}
+
+.timeline-node.is-active .timeline-node-icon {
+  border-color: rgba(214, 162, 91, 0.7);
+  background: rgba(214, 162, 91, 0.12);
+  color: var(--accent-warm);
+  box-shadow: 0 0 18px rgba(214, 162, 91, 0.2);
+  animation: timeline-pulse 1.5s ease-in-out infinite;
+}
+
+.timeline-node.is-active .timeline-node-label {
+  color: var(--accent-warm);
+}
+
+.timeline-node.is-done .timeline-node-icon {
+  border-color: rgba(52, 211, 153, 0.7);
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.15);
+}
+
+.timeline-node.is-done .timeline-node-label {
+  color: #34d399;
+}
+
+.timeline-node.is-error .timeline-node-icon {
+  border-color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.12);
+  color: #f87171;
+  box-shadow: 0 0 14px rgba(248, 113, 113, 0.15);
+  animation: timeline-shake 0.4s ease;
+}
+
+.timeline-node.is-error .timeline-node-label {
+  color: #f87171;
+}
+
+.timeline-line {
+  flex: 1 1 0;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(85, 90, 101, 0.45);
+  margin-bottom: 22px;
+  transition: background 500ms ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.timeline-line.is-active {
+  background: rgba(214, 162, 91, 0.3);
+}
+
+.timeline-line.is-active::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -40%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--accent-warm), transparent);
+  border-radius: 2px;
+  animation: timeline-flow 1.2s ease-in-out infinite;
+}
+
+.timeline-line.is-done {
+  background: linear-gradient(90deg, #34d399, #34d399);
+}
+
+.timeline-line.is-error {
+  background: rgba(248, 113, 113, 0.3);
+}
+
+@keyframes timeline-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(214, 162, 91, 0.15); }
+  50% { box-shadow: 0 0 26px rgba(214, 162, 91, 0.35); }
+}
+
+@keyframes timeline-flow {
+  0% { left: -40%; }
+  100% { left: 100%; }
+}
+
+@keyframes timeline-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+/* ── Connection Status Messages ──────────────────────────── */
+
+.ssh-connect-error {
+  display: grid;
+  gap: 6px;
+  width: min(420px, 100%);
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  background: rgba(248, 113, 113, 0.06);
+  animation: ssh-status-enter 300ms ease;
+}
+
+.ssh-connect-error strong {
+  color: #f87171;
+  font-size: 0.88rem;
+}
+
+.ssh-connect-error span {
+  color: #fca5a5;
+  font-size: 0.82rem;
+}
+
+.ssh-error-suggestion {
+  color: var(--muted) !important;
+  font-size: 0.78rem !important;
+  font-style: italic;
+}
+
+.ssh-connect-success {
+  display: grid;
+  gap: 6px;
+  width: min(420px, 100%);
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  background: rgba(52, 211, 153, 0.06);
+  animation: ssh-status-enter 300ms ease;
+}
+
+.ssh-connect-success strong {
+  color: #34d399;
+  font-size: 0.88rem;
+}
+
+.ssh-connect-success span {
+  color: #6ee7b7;
+  font-size: 0.82rem;
+}
+
+@keyframes ssh-status-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ssh-field-enter {
+  animation: ssh-field-slide 350ms ease;
+}
+
+@keyframes ssh-field-slide {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ssh-retry-button {
+  margin-top: 6px;
+  padding: 9px 18px;
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.08);
+  color: #fca5a5;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.ssh-retry-button:hover {
+  background: rgba(248, 113, 113, 0.15);
+}
+
+/* ── SFTP Server Search Panel ────────────────────────────── */
+
+.sftp-server-search-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.sftp-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sftp-search-bar svg {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.sftp-search-bar input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.92rem;
+  outline: none;
+}
+
+.sftp-search-bar input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.sftp-server-list {
+  overflow: auto;
+  padding: 12px;
+}
+
+.sftp-server-group {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.sftp-server-group-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 6px 4px;
+}
+
+.sftp-server-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(85, 90, 101, 0.4);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.sftp-server-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(214, 162, 91, 0.35);
+}
+
+.sftp-server-card-badge {
+  font-size: 1.1rem;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(214, 162, 91, 0.1);
+}
+
+.sftp-server-card-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sftp-server-card-copy strong {
+  font-size: 0.86rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sftp-server-card-copy span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sftp-server-empty {
+  display: grid;
+  place-items: center;
+  gap: 14px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.sftp-server-empty p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.sftp-new-host-btn {
+  width: auto;
+  padding: 10px 20px;
+}
+
+/* ── SFTP Connect Panel (step-by-step in SFTP) ───────────── */
+
+.sftp-connect-panel {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 24px;
+  padding: 28px 20px;
+  min-height: 300px;
+}
+
+.sftp-connect-mini-timeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: min(340px, 100%);
+}
+
+.sftp-connect-field {
+  display: grid;
+  gap: 12px;
+  width: min(300px, 100%);
+}
+
+.timeline-node.mini .timeline-node-icon {
+  width: 34px;
+  height: 34px;
+}
+
+.timeline-node.mini .timeline-node-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.timeline-node.mini .timeline-node-label {
+  font-size: 0.62rem;
+}
+
+.timeline-line.mini {
+  margin-bottom: 18px;
+}
+
+/* ── Active Command Buttons ──────────────────────────────── */
+
+.command-icon-button.is-active {
+  background: rgba(214, 162, 91, 0.18);
+  color: var(--accent-warm);
+  border: 1px solid rgba(214, 162, 91, 0.25);
+}
+
+.titlebar-utility.is-active {
+  color: var(--accent-warm);
+}
+
+/* ── Vault Inline Search ─────────────────────────────────── */
+
+.vault-inline-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  border: 1px solid rgba(85, 90, 101, 0.55);
+  border-radius: 12px;
+  background: #1b1e24;
+  animation: ssh-field-slide 250ms ease;
+}
+
+.vault-inline-search svg {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.vault-inline-search input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.88rem;
+  outline: none;
+}
+
+.vault-inline-search input::placeholder {
+  color: rgba(255, 255, 255, 0.22);
+}
+
+.vault-search-clear {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+/* ── Vault Grid View ─────────────────────────────────────── */
+
+.vault-card-list.is-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.vault-card-list.is-grid .vault-host-card {
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto;
+  text-align: center;
+  padding: 18px 14px;
+  gap: 10px;
+}
+
+.vault-card-list.is-grid .vault-host-card-badge {
+  justify-self: center;
+}
+
+.vault-host-card.is-selected {
+  border-color: rgba(214, 162, 91, 0.45);
+  background: rgba(214, 162, 91, 0.06);
+}
+
+/* ── Vault Detail Panel ──────────────────────────────────── */
+
+.vault-detail-panel {
+  animation: ssh-field-slide 300ms ease;
+}
+
+.vault-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.vault-detail-header strong {
+  font-size: 1rem;
+}
+
+.vault-detail-close {
+  border: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vault-detail-fields {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.vault-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.vault-detail-row span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.vault-detail-row strong {
+  font-size: 0.84rem;
+  text-align: right;
+  word-break: break-all;
+}
+
+.vault-detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Notification Panel ──────────────────────────────────── */
+
+.titlebar-presence {
+  position: relative;
+}
+
+.notification-panel {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 50;
+  width: 320px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(33, 39, 48, 0.98), rgba(22, 27, 34, 0.98));
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  animation: ssh-status-enter 200ms ease;
+}
+
+.notification-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.notification-panel-header strong {
+  font-size: 0.9rem;
+}
+
+.notification-list {
+  padding: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.notification-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 10px;
+  border-radius: 10px;
+  transition: background 120ms ease;
+}
+
+.notification-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.notification-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-top: 5px;
+  flex: 0 0 auto;
+}
+
+.notification-dot.is-info {
+  background: #60a5fa;
+}
+
+.notification-dot.is-success {
+  background: #34d399;
+}
+
+.notification-dot.is-error {
+  background: #f87171;
+}
+
+.notification-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.notification-copy strong {
+  font-size: 0.82rem;
+}
+
+.notification-copy span {
+  font-size: 0.74rem;
+  color: var(--muted);
 }
 
 .vault-section-layout {

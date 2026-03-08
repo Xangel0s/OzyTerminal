@@ -20,6 +20,7 @@ export type SshSessionRequest = {
   username: string;
   privateKeyPem: string;
   privateKeyPassphrase?: string;
+  password?: string;
   certificatePem?: string;
   knownHostFingerprint?: string;
   cols: number;

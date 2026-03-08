@@ -122,6 +122,12 @@ export function TerminalView({ request }: { request: SshSessionRequest }) {
     })
       .then((sessionId) => {
         sessionIdRef.current = sessionId;
+        setSessionSnapshot({
+          sessionId,
+          status: 'authenticating',
+          message: 'authenticating',
+          error: null,
+        });
       })
       .catch((error) => {
         const message = String(error);

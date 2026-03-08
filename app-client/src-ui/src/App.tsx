@@ -32,6 +32,7 @@ type FormState = {
   host: string;
   port: string;
   username: string;
+  password: string;
   knownHostFingerprint: string;
   privateKeyPem: string;
   privateKeyPassphrase: string;
@@ -143,7 +144,8 @@ const initialForm: FormState = {
   name: 'Servidor principal',
   host: '127.0.0.1',
   port: '22',
-  username: 'ozy',
+  username: 'root',
+  password: '',
   knownHostFingerprint: '',
   privateKeyPem: '',
   privateKeyPassphrase: '',
@@ -259,6 +261,14 @@ export default function App() {
   const [isSftpLocalLoading, setIsSftpLocalLoading] = useState(false);
   const [sftpLocalError, setSftpLocalError] = useState<string | null>(null);
   const [sftpLocalReloadToken, setSftpLocalReloadToken] = useState(0);
+  const [connectStep, setConnectStep] = useState<'ip' | 'user' | 'password' | 'connecting' | 'done' | 'error'>('ip');
+  const [sftpConnectStep, setSftpConnectStep] = useState<'search' | 'ip' | 'user' | 'password' | 'connecting'>('search');
+  const [sftpServerSearch, setSftpServerSearch] = useState('');
+  const [vaultViewMode, setVaultViewMode] = useState<'list' | 'grid'>('list');
+  const [isVaultSearchVisible, setIsVaultSearchVisible] = useState(false);
+  const [vaultSearchQuery, setVaultSearchQuery] = useState('');
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+  const [vaultDetailEntry, setVaultDetailEntry] = useState<VaultEntry | null>(null);
   const [feedback, setFeedback] = useState('vault local listo');
   const credentialFileInputRef = useRef<HTMLInputElement | null>(null);
   const browserMenuRef = useRef<HTMLDivElement | null>(null);
@@ -758,6 +768,7 @@ export default function App() {
       host: entry.host,
       port: String(entry.port),
       username: entry.username,
+      password: '',
       knownHostFingerprint: entry.knownHostFingerprint ?? knownHost?.fingerprintSha256 ?? '',
       privateKeyPem: entry.privateKeyPem,
       privateKeyPassphrase: entry.privateKeyPassphrase ?? '',
@@ -1018,6 +1029,93 @@ export default function App() {
     );
   }
 
+  function connectSimple() {
+    if (!form.host.trim()) {
+      setFeedback('enter the server IP address');
+      return;
+    }
+
+    if (!form.username.trim()) {
+      setFeedback('enter the username');
+      return;
+    }
+
+    if (!form.password.trim()) {
+      setFeedback('enter the password');
+      return;
+    }
+
+    setConnectStep('connecting');
+
+    const nextRequest: SshSessionRequest = {
+      host: form.host.trim(),
+      port: Number(form.port || 22),
+      username: form.username.trim(),
+      privateKeyPem: '',
+      password: form.password.trim(),
+      cols: 80,
+      rows: 24,
+    };
+
+    setIsTerminalTabOpen(true);
+    setActiveLaunch({
+      launchId: crypto.randomUUID(),
+      request: nextRequest,
+      startedAt: Date.now(),
+    });
+    setActiveWorkspace('terminal');
+    setFeedback(`connecting to ${nextRequest.host}...`);
+  }
+
+  function advanceConnectStep() {
+    if (connectStep === 'ip') {
+      if (!form.host.trim()) {
+        setFeedback('enter the server IP address');
+        return;
+      }
+      setConnectStep('user');
+    } else if (connectStep === 'user') {
+      if (!form.username.trim()) {
+        setFeedback('enter the username');
+        return;
+      }
+      setConnectStep('password');
+    } else if (connectStep === 'password') {
+      connectSimple();
+    }
+  }
+
+  function resetConnectStep() {
+    setConnectStep('ip');
+    setActiveLaunch(null);
+  }
+
+  function selectSftpServer(host: string, username: string, port: string) {
+    updateField('host', host);
+    updateField('username', username);
+    updateField('port', port);
+    setSftpConnectStep('password');
+    setFeedback(`server selected: ${username}@${host}`);
+  }
+
+  function advanceSftpStep() {
+    if (sftpConnectStep === 'ip') {
+      if (!form.host.trim()) { setFeedback('enter the server IP'); return; }
+      setSftpConnectStep('user');
+    } else if (sftpConnectStep === 'user') {
+      if (!form.username.trim()) { setFeedback('enter the username'); return; }
+      setSftpConnectStep('password');
+    } else if (sftpConnectStep === 'password') {
+      connectSimple();
+      setSftpConnectStep('connecting');
+    }
+  }
+
+  function resetSftpStep() {
+    setSftpConnectStep('search');
+    setSftpServerSearch('');
+  }
+
   async function issueRelayLease() {
     if (!activeControlPlane) {
       setFeedback('define la URL del control-plane para emitir un relay lease');
@@ -1206,7 +1304,11 @@ export default function App() {
   }
 
   function renderVaultHostsSection() {
-    const isEmpty = filteredVaultEntries.length === 0 && activeComposer !== 'hosts';
+    const searchQ = vaultSearchQuery.trim().toLowerCase();
+    const visibleEntries = searchQ
+      ? filteredVaultEntries.filter((e) => [e.name, e.host, e.username].join(' ').toLowerCase().includes(searchQ))
+      : filteredVaultEntries;
+    const isEmpty = visibleEntries.length === 0 && activeComposer !== 'hosts';
 
     if (isEmpty) {
       return (
@@ -1274,10 +1376,17 @@ export default function App() {
               </div>
             </section>
           ) : null}
-          <div className="vault-card-list selectable-list">
-            {filteredVaultEntries.length > 0 ? (
-              filteredVaultEntries.map((entry) => (
-                <button key={entry.id} type="button" className="vault-host-card" onClick={() => loadEntry(entry)}>
+          {isVaultSearchVisible ? (
+            <div className="vault-inline-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="11" cy="11" r="6" /><path d="m20 20-4.2-4.2" /></svg>
+              <input type="text" placeholder="Filter hosts..." value={vaultSearchQuery} onChange={(e) => setVaultSearchQuery(e.target.value)} autoFocus />
+              {vaultSearchQuery ? <button type="button" className="vault-search-clear" onClick={() => setVaultSearchQuery('')}>×</button> : null}
+            </div>
+          ) : null}
+          <div className={`vault-card-list selectable-list ${vaultViewMode === 'grid' ? 'is-grid' : ''}`}>
+            {visibleEntries.length > 0 ? (
+              visibleEntries.map((entry) => (
+                <button key={entry.id} type="button" className={`vault-host-card ${vaultDetailEntry?.id === entry.id ? 'is-selected' : ''}`} onClick={() => { loadEntry(entry); setVaultDetailEntry(entry); }}>
                   <span className="vault-host-card-badge">◎</span>
                   <span className="vault-host-card-copy">
                     <strong>{entry.name}</strong>
@@ -1287,12 +1396,33 @@ export default function App() {
                 </button>
               ))
             ) : (
-              <EmptyState text="No hay hosts guardados todavia en el vault activo." />
+              <EmptyState text={vaultSearchQuery ? `No hosts match "${vaultSearchQuery}"` : 'No hay hosts guardados todavia en el vault activo.'} />
             )}
           </div>
         </section>
 
-        <section className="stack-card">
+        {vaultDetailEntry ? (
+          <section className="stack-card vault-detail-panel">
+            <header className="vault-detail-header">
+              <strong>Host Details</strong>
+              <button type="button" className="vault-detail-close" onClick={() => setVaultDetailEntry(null)}>×</button>
+            </header>
+            <div className="vault-detail-fields">
+              <div className="vault-detail-row"><span>Name</span><strong>{vaultDetailEntry.name}</strong></div>
+              <div className="vault-detail-row"><span>Host</span><strong>{vaultDetailEntry.host}</strong></div>
+              <div className="vault-detail-row"><span>Port</span><strong>{vaultDetailEntry.port}</strong></div>
+              <div className="vault-detail-row"><span>Username</span><strong>{vaultDetailEntry.username}</strong></div>
+              <div className="vault-detail-row"><span>Key</span><strong>{vaultDetailEntry.privateKeyPem ? 'Configured' : 'None'}</strong></div>
+              <div className="vault-detail-row"><span>Certificate</span><strong>{vaultDetailEntry.certificatePem ? 'Present' : 'None'}</strong></div>
+              <div className="vault-detail-row"><span>Host Key</span><strong>{vaultDetailEntry.knownHostFingerprint ? vaultDetailEntry.knownHostFingerprint.slice(0, 20) + '...' : 'Not verified'}</strong></div>
+            </div>
+            <div className="vault-detail-actions">
+              <button type="button" className="command-chip primary" onClick={() => { loadEntry(vaultDetailEntry); connect(); }}>Connect</button>
+              <button type="button" className="command-chip" onClick={() => { loadEntry(vaultDetailEntry); setActiveWorkspace('hosts'); }}>SFTP</button>
+            </div>
+          </section>
+        ) : (
+          <section className="stack-card">
           <SectionHeading title="Shared Vault" subtitle="ACL, servidores compartidos y revision colaborativa" />
           <div className="button-row">
             <button type="button" className="secondary" onClick={() => void bootstrapSharedVault()}>
@@ -1325,7 +1455,8 @@ export default function App() {
               <EmptyState text="Sin servidores compartidos visibles para el actor actual." />
             )}
           </div>
-        </section>
+        </section>)
+        }
       </div>
     );
   }
@@ -1713,13 +1844,13 @@ export default function App() {
           ) : null}
         </div>
         <div className="replica-command-tools">
-          <button type="button" className="command-icon-button" aria-label="Buscar">
+          <button type="button" className={`command-icon-button ${isVaultSearchVisible ? 'is-active' : ''}`} aria-label="Buscar" onClick={() => { setIsVaultSearchVisible((v) => !v); if (isVaultSearchVisible) setVaultSearchQuery(''); }}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <circle cx="11" cy="11" r="6" />
               <path d="m20 20-4.2-4.2" />
             </svg>
           </button>
-          <button type="button" className="command-icon-button" aria-label="Grid">
+          <button type="button" className={`command-icon-button ${vaultViewMode === 'grid' ? 'is-active' : ''}`} aria-label="Grid" onClick={() => setVaultViewMode(vaultViewMode === 'grid' ? 'list' : 'grid')}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <rect x="4" y="4" width="6" height="6" />
               <rect x="14" y="4" width="6" height="6" />
@@ -1727,7 +1858,7 @@ export default function App() {
               <rect x="14" y="14" width="6" height="6" />
             </svg>
           </button>
-          <button type="button" className="command-icon-button" aria-label="Panels">
+          <button type="button" className={`command-icon-button ${vaultDetailEntry ? 'is-active' : ''}`} aria-label="Panels" onClick={() => setVaultDetailEntry(null)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <rect x="4" y="5" width="16" height="14" />
               <path d="M12 5v14" />
@@ -1987,54 +2118,178 @@ export default function App() {
   }
 
   function renderTerminalWorkspace() {
+    const sshPhase = (() => {
+      if (session.status === 'error') return 'error' as const;
+      if (session.status === 'connected') return 'done' as const;
+      if (session.status === 'authenticating') return 'connecting' as const;
+      if (session.status === 'connecting' && activeLaunch) return 'connecting' as const;
+      return connectStep;
+    })();
+
+    const timelineError = session.status === 'error' ? session.error : null;
+    const showTerminal = activeLaunch && (session.status === 'connected' || session.status === 'closed');
+
+    const stepLabels = {
+      ip: 'Enter the server public IP',
+      user: 'Enter the username',
+      password: 'Enter the password',
+      connecting: 'Connecting to server...',
+      done: 'Connection established',
+      error: 'Connection failed',
+    };
+
     return (
       <section className="terminal-replica-workspace">
-        <div className="terminal-replica-toolbar">
-          <label>
-            <span>Perfil</span>
-            <input value={form.name} onChange={(event) => updateField('name', event.target.value)} />
-          </label>
-          <label>
-            <span>Host</span>
-            <input value={form.host} onChange={(event) => updateField('host', event.target.value)} />
-          </label>
-          <label>
-            <span>Puerto</span>
-            <input value={form.port} onChange={(event) => updateField('port', event.target.value)} />
-          </label>
-          <label>
-            <span>Usuario</span>
-            <input value={form.username} onChange={(event) => updateField('username', event.target.value)} />
-          </label>
-          <div className="terminal-replica-actions">
-            <button type="button" className="secondary" onClick={() => void probeHostKey()}>
-              Host Key
-            </button>
-            <button type="button" className="secondary" onClick={() => void issueCertificate()}>
-              Cert
-            </button>
-            <button type="button" className="primary" onClick={connect}>
-              {activeLaunch && pendingSessionChanges.length > 0 ? 'Reconectar' : 'Conectar'}
-            </button>
-          </div>
-        </div>
+        {!showTerminal ? (
+          <div className="ssh-connect-panel">
+            <div className="ssh-connect-header">
+              <svg className="ssh-connect-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="2" y="3" width="20" height="14" rx="3" />
+                <path d="M8 21h8" />
+                <path d="M12 17v4" />
+                <path d="M7 9l2 2-2 2" />
+                <path d="M11 13h4" />
+              </svg>
+              <h2>Host SSH</h2>
+              <p>{stepLabels[sshPhase]}</p>
+            </div>
 
-        <div className="terminal-replica-meta">
-          <div>
-            <span>Host Trust</span>
-            <strong>{form.knownHostFingerprint.trim() || currentKnownHost?.fingerprintSha256 || 'pending'}</strong>
-          </div>
-          <div>
-            <span>Certificate</span>
-            <strong>{issuedCertificate ? issuedCertificate.keyId : form.certificatePem ? 'manual certificate' : 'not issued'}</strong>
-          </div>
-          <div>
-            <span>Relay</span>
-            <strong>{issuedRelayLease ? issuedRelayLease.relayAddress : form.relayTargetNodeId || 'direct'}</strong>
-          </div>
-        </div>
+            {/* ── Timeline ── */}
+            <div className="connection-timeline">
+              {/* Node 1: IP */}
+              <div className={`timeline-node ${sshPhase === 'ip' ? 'is-active' : ''} ${sshPhase !== 'ip' && sshPhase !== 'error' ? 'is-done' : ''} ${sshPhase === 'error' && (session.error?.kind === 'connection' || session.error?.kind === 'host_key') ? 'is-error' : sshPhase === 'error' ? 'is-done' : ''}`}>
+                <div className="timeline-node-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2.5" />
+                    <path d="M8 21h8" />
+                    <path d="M12 17v4" />
+                  </svg>
+                </div>
+                <span className="timeline-node-label">IP</span>
+              </div>
 
-        <div className="terminal-replica-canvas">
+              <div className={`timeline-line ${sshPhase !== 'ip' && sshPhase !== 'error' ? 'is-done' : ''} ${sshPhase === 'ip' ? 'is-active' : ''} ${sshPhase === 'error' && (session.error?.kind === 'connection' || session.error?.kind === 'host_key') ? 'is-error' : ''}`} />
+
+              {/* Node 2: User */}
+              <div className={`timeline-node ${sshPhase === 'user' ? 'is-active' : ''} ${(sshPhase === 'password' || sshPhase === 'connecting' || sshPhase === 'done') ? 'is-done' : ''} ${sshPhase === 'error' && (session.error?.kind === 'connection' || session.error?.kind === 'host_key') ? '' : sshPhase === 'error' ? (session.error?.kind === 'authentication' ? 'is-error' : 'is-done') : ''}`}>
+                <div className="timeline-node-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="8" r="4" />
+                    <path d="M5 20a7 7 0 0 1 14 0" />
+                  </svg>
+                </div>
+                <span className="timeline-node-label">User</span>
+              </div>
+
+              <div className={`timeline-line ${(sshPhase === 'password' || sshPhase === 'connecting' || sshPhase === 'done') ? 'is-done' : ''} ${sshPhase === 'user' ? 'is-active' : ''} ${sshPhase === 'error' && session.error?.kind === 'authentication' ? 'is-error' : ''}`} />
+
+              {/* Node 3: Password */}
+              <div className={`timeline-node ${sshPhase === 'password' ? 'is-active' : ''} ${(sshPhase === 'connecting' || sshPhase === 'done') ? 'is-done' : ''} ${sshPhase === 'error' && session.error?.kind === 'authentication' ? 'is-error' : ''}`}>
+                <div className="timeline-node-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="5" y="11" width="14" height="10" rx="2" />
+                    <path d="M12 3a4 4 0 0 0-4 4v4h8V7a4 4 0 0 0-4-4Z" />
+                    <circle cx="12" cy="16" r="1" />
+                  </svg>
+                </div>
+                <span className="timeline-node-label">Password</span>
+              </div>
+
+              <div className={`timeline-line ${sshPhase === 'done' ? 'is-done' : ''} ${(sshPhase === 'connecting' || sshPhase === 'password') ? 'is-active' : ''} ${sshPhase === 'error' && session.error?.kind !== 'connection' && session.error?.kind !== 'host_key' ? 'is-error' : ''}`} />
+
+              {/* Node 4: Server */}
+              <div className={`timeline-node ${sshPhase === 'connecting' ? 'is-active' : ''} ${sshPhase === 'done' ? 'is-done' : ''} ${sshPhase === 'error' && (session.error?.kind === 'shell' || session.error?.kind === 'unknown') ? 'is-error' : ''}`}>
+                <div className="timeline-node-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="4" y="5" width="16" height="14" rx="2.5" />
+                    <path d="M4 9h16" />
+                    <circle cx="7" cy="7" r="0.5" fill="currentColor" />
+                    <circle cx="9.5" cy="7" r="0.5" fill="currentColor" />
+                    <circle cx="12" cy="7" r="0.5" fill="currentColor" />
+                  </svg>
+                </div>
+                <span className="timeline-node-label">Server</span>
+              </div>
+            </div>
+
+            {/* ── Step Forms ── */}
+            <div className="ssh-connect-form">
+              {sshPhase === 'ip' ? (
+                <label className="ssh-field ssh-field-enter" key="step-ip">
+                  <span>IP Address</span>
+                  <input
+                    id="ssh-host-input"
+                    type="text"
+                    placeholder="192.168.1.100"
+                    value={form.host}
+                    onChange={(event) => updateField('host', event.target.value)}
+                    onKeyDown={(event) => event.key === 'Enter' && advanceConnectStep()}
+                    autoFocus
+                  />
+                </label>
+              ) : null}
+
+              {sshPhase === 'user' ? (
+                <label className="ssh-field ssh-field-enter" key="step-user">
+                  <span>Username</span>
+                  <input
+                    id="ssh-user-input"
+                    type="text"
+                    placeholder="root"
+                    value={form.username}
+                    onChange={(event) => updateField('username', event.target.value)}
+                    onKeyDown={(event) => event.key === 'Enter' && advanceConnectStep()}
+                    autoFocus
+                  />
+                </label>
+              ) : null}
+
+              {sshPhase === 'password' ? (
+                <label className="ssh-field ssh-field-enter" key="step-password">
+                  <span>Password</span>
+                  <input
+                    id="ssh-pass-input"
+                    type="password"
+                    placeholder="••••••••"
+                    value={form.password}
+                    onChange={(event) => updateField('password', event.target.value)}
+                    onKeyDown={(event) => event.key === 'Enter' && advanceConnectStep()}
+                    autoFocus
+                  />
+                </label>
+              ) : null}
+
+              {sshPhase !== 'connecting' && sshPhase !== 'done' && sshPhase !== 'error' ? (
+                <button
+                  id="ssh-connect-btn"
+                  type="button"
+                  className="ssh-connect-button"
+                  onClick={advanceConnectStep}
+                >
+                  {sshPhase === 'password' ? 'Connect' : 'Next'}
+                </button>
+              ) : null}
+            </div>
+
+            {sshPhase === 'error' && timelineError ? (
+              <div className="ssh-connect-error">
+                <strong>Connection failed</strong>
+                <span>{timelineError.title}</span>
+                {timelineError.suggestion ? <span className="ssh-error-suggestion">{timelineError.suggestion}</span> : null}
+                <button type="button" className="ssh-retry-button" onClick={resetConnectStep}>Retry</button>
+              </div>
+            ) : null}
+
+            {sshPhase === 'done' ? (
+              <div className="ssh-connect-success">
+                <strong>Connection successful</strong>
+                <span>Welcome to the server — entering terminal...</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="terminal-replica-canvas" style={{ display: showTerminal ? undefined : 'none' }}>
           {activeLaunch ? <TerminalView key={activeLaunch.launchId} request={activeLaunch.request} /> : <IdleTerminalCard />}
         </div>
       </section>
@@ -2147,55 +2402,165 @@ export default function App() {
                   <path d="M9 14h6" />
                 </svg>
               </span>
-              <strong>{hasRemoteHost ? remoteHostLabel : 'Host'}</strong>
+              <strong>{hasRemoteHost ? remoteHostLabel : 'Remote Host'}</strong>
             </div>
             <div className="sftp-panel-actions">
-              <button type="button" className="sftp-toolbar-button" onClick={connect} disabled={!hasRemoteHost}>
-                {remoteConnectLabel}
-              </button>
-              <button type="button" className="sftp-toolbar-button" onClick={openSftpHostSelector}>
-                Change host
+              {sftpConnectStep !== 'search' ? (
+                <button type="button" className="sftp-toolbar-button" onClick={resetSftpStep}>
+                  ← Servers
+                </button>
+              ) : null}
+              <button type="button" className="sftp-toolbar-button" onClick={() => setSftpConnectStep('ip')}>
+                New host
               </button>
             </div>
           </header>
 
-          {hasRemoteHost ? (
-            <div className="sftp-remote-shell">
-              <div className="sftp-breadcrumb-bar remote-breadcrumb-bar">
-                <div className="sftp-breadcrumbs">
-                  <span className="sftp-breadcrumb-segment">{remoteHostSummary}</span>
-                  <span className="sftp-breadcrumb-segment">/</span>
-                </div>
+          {sftpConnectStep === 'search' ? (
+            <div className="sftp-server-search-panel">
+              <div className="sftp-search-bar">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m21 21-4.35-4.35" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Search servers..."
+                  value={sftpServerSearch}
+                  onChange={(e) => setSftpServerSearch(e.target.value)}
+                  autoFocus
+                />
               </div>
-              <section className="vault-empty-panel sftp-empty-remote">
-                <div className="vault-empty-icon">
-                  <AppIcon name="sftp" />
-                </div>
-                <h3>Connect to host</h3>
-                <p>Start by connecting to the selected host to manage your files with SFTP.</p>
-                <div className="button-row sftp-empty-actions">
-                  <button type="button" className="secondary" onClick={connect}>
-                    Connect
-                  </button>
-                  <button type="button" className="command-chip primary" onClick={openSftpHostSelector}>
-                    Change host
-                  </button>
-                </div>
-              </section>
+              <div className="sftp-server-list">
+                {(() => {
+                  const query = sftpServerSearch.trim().toLowerCase();
+                  const vaultMatches = vaultEntries.filter((e) =>
+                    !query || [e.name, e.host, e.username].join(' ').toLowerCase().includes(query)
+                  );
+                  const recentMatches = recentConnections.filter((e) =>
+                    !query || [e.profileName, e.host, e.username].join(' ').toLowerCase().includes(query)
+                  );
+                  const allEmpty = vaultMatches.length === 0 && recentMatches.length === 0;
+
+                  if (allEmpty) {
+                    return (
+                      <div className="sftp-server-empty">
+                        <p>{query ? 'No servers match your search' : 'No saved servers yet'}</p>
+                        <button type="button" className="ssh-connect-button sftp-new-host-btn" onClick={() => setSftpConnectStep('ip')}>
+                          Connect to new host
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <>
+                      {recentMatches.length > 0 ? (
+                        <div className="sftp-server-group">
+                          <span className="sftp-server-group-label">Recent</span>
+                          {recentMatches.slice(0, 5).map((entry, i) => (
+                            <button
+                              key={`recent-${i}`}
+                              type="button"
+                              className="sftp-server-card"
+                              onClick={() => selectSftpServer(entry.host, entry.username, String(entry.port))}
+                            >
+                              <span className="sftp-server-card-badge">⏱</span>
+                              <span className="sftp-server-card-copy">
+                                <strong>{entry.profileName}</strong>
+                                <span>{entry.username}@{entry.host}:{entry.port}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      {vaultMatches.length > 0 ? (
+                        <div className="sftp-server-group">
+                          <span className="sftp-server-group-label">Saved hosts</span>
+                          {vaultMatches.slice(0, 8).map((entry) => (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              className="sftp-server-card"
+                              onClick={() => selectSftpServer(entry.host, entry.username, String(entry.port))}
+                            >
+                              <span className="sftp-server-card-badge">◎</span>
+                              <span className="sftp-server-card-copy">
+                                <strong>{entry.name}</strong>
+                                <span>{entry.username}@{entry.host}:{entry.port}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </>
+                  );
+                })()}
+              </div>
             </div>
           ) : (
-            <section className="vault-empty-panel sftp-empty-remote">
-              <div className="vault-empty-icon">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M3.5 6.5h6l2 2H20a1.5 1.5 0 0 1 1.5 1.5v7A2.5 2.5 0 0 1 19 19.5H5A2.5 2.5 0 0 1 2.5 17V8A1.5 1.5 0 0 1 4 6.5Z" />
-                </svg>
+            <div className="sftp-connect-panel">
+              <div className="sftp-connect-mini-timeline">
+                <div className={`timeline-node mini ${sftpConnectStep === 'ip' ? 'is-active' : 'is-done'}`}>
+                  <div className="timeline-node-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2.5" /><path d="M8 21h8" /><path d="M12 17v4" /></svg></div>
+                  <span className="timeline-node-label">IP</span>
+                </div>
+                <div className={`timeline-line mini ${sftpConnectStep !== 'ip' ? 'is-done' : 'is-active'}`} />
+                <div className={`timeline-node mini ${sftpConnectStep === 'user' ? 'is-active' : ''} ${sftpConnectStep === 'password' || sftpConnectStep === 'connecting' ? 'is-done' : ''}`}>
+                  <div className="timeline-node-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M5 20a7 7 0 0 1 14 0" /></svg></div>
+                  <span className="timeline-node-label">User</span>
+                </div>
+                <div className={`timeline-line mini ${sftpConnectStep === 'password' || sftpConnectStep === 'connecting' ? 'is-done' : ''} ${sftpConnectStep === 'user' ? 'is-active' : ''}`} />
+                <div className={`timeline-node mini ${sftpConnectStep === 'password' ? 'is-active' : ''} ${sftpConnectStep === 'connecting' ? 'is-done' : ''}`}>
+                  <div className="timeline-node-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M12 3a4 4 0 0 0-4 4v4h8V7a4 4 0 0 0-4-4Z" /><circle cx="12" cy="16" r="1" /></svg></div>
+                  <span className="timeline-node-label">Pass</span>
+                </div>
+                <div className={`timeline-line mini ${sftpConnectStep === 'connecting' ? 'is-active' : ''}`} />
+                <div className={`timeline-node mini ${sftpConnectStep === 'connecting' ? 'is-active' : ''}`}>
+                  <div className="timeline-node-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="5" width="16" height="14" rx="2.5" /><path d="M4 9h16" /><circle cx="7" cy="7" r="0.5" fill="currentColor" /><circle cx="9.5" cy="7" r="0.5" fill="currentColor" /></svg></div>
+                  <span className="timeline-node-label">Server</span>
+                </div>
               </div>
-              <h3>Connect to host</h3>
-              <p>Start by connecting to a saved host to manage your files with SFTP.</p>
-              <button type="button" className="command-chip primary" onClick={openSftpHostSelector}>
-                Select host
-              </button>
-            </section>
+
+              <div className="sftp-connect-field">
+                {sftpConnectStep === 'ip' ? (
+                  <label className="ssh-field ssh-field-enter" key="sftp-ip">
+                    <span>IP Address</span>
+                    <input type="text" placeholder="192.168.1.100" value={form.host}
+                      onChange={(e) => updateField('host', e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && advanceSftpStep()}
+                      autoFocus />
+                  </label>
+                ) : sftpConnectStep === 'user' ? (
+                  <label className="ssh-field ssh-field-enter" key="sftp-user">
+                    <span>Username</span>
+                    <input type="text" placeholder="root" value={form.username}
+                      onChange={(e) => updateField('username', e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && advanceSftpStep()}
+                      autoFocus />
+                  </label>
+                ) : sftpConnectStep === 'password' ? (
+                  <label className="ssh-field ssh-field-enter" key="sftp-pass">
+                    <span>Password</span>
+                    <input type="password" placeholder="••••••••" value={form.password}
+                      onChange={(e) => updateField('password', e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && advanceSftpStep()}
+                      autoFocus />
+                  </label>
+                ) : null}
+
+                {sftpConnectStep !== 'connecting' ? (
+                  <button type="button" className="ssh-connect-button" onClick={advanceSftpStep}>
+                    {sftpConnectStep === 'password' ? 'Connect' : 'Next'}
+                  </button>
+                ) : (
+                  <div className="ssh-connect-success" style={{ marginTop: 8 }}>
+                    <strong>Connecting...</strong>
+                    <span>Establishing SSH session for SFTP</span>
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </section>
       </div>
@@ -2440,6 +2805,11 @@ export default function App() {
                 <span />
                 <span />
                 <span />
+                <span className={`hamburger-chevron ${isBrowserMenuOpen ? 'is-open' : ''}`}>
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 6l4 4 4-4" />
+                  </svg>
+                </span>
               </button>
               {isBrowserMenuOpen ? (
                 <div className="browser-menu-panel" onMouseLeave={() => setActiveBrowserSubmenu(null)}>
@@ -2574,15 +2944,21 @@ export default function App() {
                   <strong>Vaults</strong>
                 </span>
               </button>
-              <button
-                type="button"
-                className="titlebar-tab titlebar-tab-caret titlebar-tab-group-extension"
-                onClick={toggleVaultMenu}
-                data-no-drag="true"
-                aria-label="Abrir opciones de Vaults"
-              >
-                <span className={`titlebar-tab-caret-icon ${isVaultMenuOpen ? 'is-open' : ''}`}>⌄</span>
-              </button>
+              {activeWorkspace === 'vaults' ? (
+                <button
+                  type="button"
+                  className="titlebar-tab titlebar-tab-caret titlebar-tab-group-extension"
+                  onClick={toggleVaultMenu}
+                  data-no-drag="true"
+                  aria-label="Abrir opciones de Vaults"
+                >
+                  <span className={`titlebar-tab-caret-icon ${isVaultMenuOpen ? 'is-open' : ''}`}>
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 6l4 4 4-4" />
+                    </svg>
+                  </span>
+                </button>
+              ) : null}
               {isVaultMenuOpen ? (
                 <div className="vault-scope-menu">
                   <button
@@ -2591,12 +2967,16 @@ export default function App() {
                     onClick={() => selectVaultScope('personal')}
                   >
                     <span className="vault-scope-option-leading">
-                      <span className="vault-scope-option-icon"><AppIcon name="person" /></span>
+                      <span className="vault-scope-option-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="12" cy="8" r="4" />
+                          <path d="M5 20a7 7 0 0 1 14 0" />
+                        </svg>
+                      </span>
                       <strong>Personal</strong>
                     </span>
                     <span className="vault-scope-option-trailing">
-                      <span className="vault-scope-option-user">◌</span>
-                      {activeVaultScope === 'personal' ? <span className="vault-scope-option-check">✓</span> : null}
+                      {activeVaultScope === 'personal' ? <span className="vault-scope-option-check"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8.5l3.5 3.5L13 5" /></svg></span> : null}
                     </span>
                   </button>
                   <button
@@ -2605,12 +2985,18 @@ export default function App() {
                     onClick={() => selectVaultScope('team')}
                   >
                     <span className="vault-scope-option-leading">
-                      <span className="vault-scope-option-icon"><AppIcon name="team" /></span>
+                      <span className="vault-scope-option-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="9" cy="7" r="3.5" />
+                          <path d="M2 19a7 7 0 0 1 14 0" />
+                          <circle cx="17" cy="9" r="2.5" />
+                          <path d="M22 19a5 5 0 0 0-7.5-4.3" />
+                        </svg>
+                      </span>
                       <strong>Team</strong>
                     </span>
                     <span className="vault-scope-option-trailing">
-                      <span className="vault-scope-option-user">◎</span>
-                      {activeVaultScope === 'team' ? <span className="vault-scope-option-check">✓</span> : null}
+                      {activeVaultScope === 'team' ? <span className="vault-scope-option-check"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 8.5l3.5 3.5L13 5" /></svg></span> : null}
                     </span>
                   </button>
                 </div>
@@ -2685,13 +3071,48 @@ export default function App() {
 
           <div className="titlebar-window-area" data-tauri-drag-region>
             <div className="titlebar-presence titlebar-presence-icons" data-no-drag="true">
-              <button type="button" className="titlebar-utility" aria-label="Notificaciones">
+              <button type="button" className={`titlebar-utility ${isNotificationPanelOpen ? 'is-active' : ''}`} aria-label="Notificaciones" onClick={() => setIsNotificationPanelOpen((v) => !v)}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 0 0-4-5.7V5a2 2 0 1 0-4 0v.3A6 6 0 0 0 6 11v3.2c0 .5-.2 1-.6 1.4L4 17h5" />
                   <path d="M9 17a3 3 0 0 0 6 0" />
                 </svg>
               </button>
-              <button type="button" className="titlebar-utility" aria-label="Menu rapido">
+              {isNotificationPanelOpen ? (
+                <div className="notification-panel">
+                  <header className="notification-panel-header">
+                    <strong>Notifications</strong>
+                    <button type="button" className="vault-detail-close" onClick={() => setIsNotificationPanelOpen(false)}>×</button>
+                  </header>
+                  <div className="notification-list">
+                    <div className="notification-item">
+                      <span className="notification-dot is-info" />
+                      <span className="notification-copy">
+                        <strong>OzyTerminal Ready</strong>
+                        <span>All systems operational</span>
+                      </span>
+                    </div>
+                    {activeLaunch ? (
+                      <div className="notification-item">
+                        <span className={`notification-dot ${session.status === 'connected' ? 'is-success' : session.status === 'error' ? 'is-error' : 'is-info'}`} />
+                        <span className="notification-copy">
+                          <strong>SSH Session</strong>
+                          <span>{session.status === 'connected' ? `Connected to ${activeLaunch.request.host}` : session.status === 'error' ? 'Connection failed' : `Connecting to ${activeLaunch.request.host}...`}</span>
+                        </span>
+                      </div>
+                    ) : null}
+                    {vaultEntries.length > 0 ? (
+                      <div className="notification-item">
+                        <span className="notification-dot is-success" />
+                        <span className="notification-copy">
+                          <strong>Vault Loaded</strong>
+                          <span>{vaultEntries.length} hosts in {activeVaultScope} vault</span>
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              <button type="button" className="titlebar-utility" aria-label="Menu rapido" onClick={() => setIsSettingsPanelOpen(true)}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M4 6h16" />
                   <path d="M4 12h16" />
@@ -2819,7 +3240,7 @@ export default function App() {
           <section className="replica-stage-shell">
             {activeWorkspace === 'vaults' ? renderVaultCommandBar() : null}
 
-            <div className="replica-workspace-scroll">{renderActiveWorkspace()}</div>
+            <div key={activeWorkspace} className="replica-workspace-scroll">{renderActiveWorkspace()}</div>
           </section>
         </section>
       </main>

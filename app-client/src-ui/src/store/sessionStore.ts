@@ -2,7 +2,7 @@ import type { TerminalErrorPayload } from '../types/api';
 
 type SessionSnapshot = {
   sessionId: string | null;
-  status: 'idle' | 'connecting' | 'connected' | 'closed' | 'error';
+  status: 'idle' | 'connecting' | 'authenticating' | 'connected' | 'closed' | 'error';
   message: string;
   error: TerminalErrorPayload | null;
 };

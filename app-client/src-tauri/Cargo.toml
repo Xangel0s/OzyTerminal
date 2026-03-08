@@ -8,7 +8,7 @@ name = "ozyterminal_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.0.0" }
+tauri-build = { version = "2.5", features = [] }
 
 [dependencies]
 aes-gcm = "0.10"
@@ -25,7 +25,7 @@ russh = "0.50"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 secrecy = { version = "0.8", features = ["serde"] }
-tauri = { version = "2.0.0", features = [] }
+tauri = { version = "2.10", features = [] }
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

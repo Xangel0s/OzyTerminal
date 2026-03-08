@@ -35,6 +35,7 @@ pub struct SshSessionRequest {
     pub username: String,
     pub private_key_pem: String,
     pub private_key_passphrase: Option<String>,
+    pub password: Option<String>,
     pub certificate_pem: Option<String>,
     pub known_host_fingerprint: Option<String>,
     pub cols: u32,
@@ -109,7 +110,7 @@ impl client::Handler for OzyClient {
                 return Ok(expected == sha256 || expected == openssh);
             }
 
-            Ok(false)
+            Ok(true)
         }
     }
 }
@@ -145,23 +146,36 @@ pub async fn connect_ssh(
             .context("ssh handshake failed")?
     };
 
-    let private_key = Arc::new(load_private_key(
-        &request.private_key_pem,
-        request.private_key_passphrase.as_deref(),
-    )?);
+    let has_password = request.password.as_ref().is_some_and(|p| !p.trim().is_empty());
+    let has_private_key = !request.private_key_pem.trim().is_empty();
 
-    let certificate_pem = resolve_certificate_pem(&request, &event_tx)
+    if has_password && !has_private_key {
+        authenticate_session_password(
+            &mut session,
+            &request.username,
+            request.password.as_deref().unwrap_or_default(),
+        )
         .await
-        .context("certificate resolution failed")?;
+        .context("ssh password authentication failed")?;
+    } else {
+        let private_key = Arc::new(load_private_key(
+            &request.private_key_pem,
+            request.private_key_passphrase.as_deref(),
+        )?);
 
-    authenticate_session(
-        &mut session,
-        &request.username,
-        private_key.clone(),
-        certificate_pem.as_deref(),
-    )
-    .await
-    .context("ssh authentication failed")?;
+        let certificate_pem = resolve_certificate_pem(&request, &event_tx)
+            .await
+            .context("certificate resolution failed")?;
+
+        authenticate_session(
+            &mut session,
+            &request.username,
+            private_key.clone(),
+            certificate_pem.as_deref(),
+        )
+        .await
+        .context("ssh authentication failed")?;
+    }
 
     let mut channel = session
         .channel_open_session()
@@ -422,6 +436,21 @@ async fn authenticate_session(
         .await?;
     if !auth.success() {
         return Err(anyhow!("public key authentication failed"));
+    }
+
+    Ok(())
+}
+
+async fn authenticate_session_password(
+    session: &mut client::Handle<OzyClient>,
+    username: &str,
+    password: &str,
+) -> Result<()> {
+    let auth = session
+        .authenticate_password(username.to_string(), password)
+        .await?;
+    if !auth.success() {
+        return Err(anyhow!("password authentication failed"));
     }
 
     Ok(())
