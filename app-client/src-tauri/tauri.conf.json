@@ -4,15 +4,15 @@
   "version": "0.1.0",
   "identifier": "com.ozyterminal.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist",
-    "devUrl": "http://localhost:1420"
+    "beforeDevCommand": "pnpm --dir src-ui dev",
+    "beforeBuildCommand": "pnpm --dir src-ui build",
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../src-ui/out"
   },
   "app": {
     "windows": [
       {
-        "title": "AdminTerminal",
+        "title": "OzyTerminal",
         "width": 1440,
         "height": 900,
         "resizable": true,
