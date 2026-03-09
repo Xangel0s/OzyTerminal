@@ -2609,7 +2609,7 @@ export default function App() {
               <input
                 value={form.controlPlanePrincipals}
                 onChange={(event) => updateField('controlPlanePrincipals', event.target.value)}
-                placeholder="ozy, admin"
+                placeholder="admin, server"
               />
             </label>
             <label>
@@ -2918,8 +2918,8 @@ export default function App() {
                         <button type="button" className="browser-menu-item" onClick={() => handleBrowserMenuAction(async () => openRelayWorkspace())}>
                           <span>Connection Diagnostics</span>
                         </button>
-                        <button type="button" className="browser-menu-item" onClick={() => handleBrowserMenuAction(async () => setFeedback('Ozy Terminal listo para vaults, relay y sesiones ssh'))}>
-                          <span>About Ozy Terminal</span>
+                        <button type="button" className="browser-menu-item" onClick={() => handleBrowserMenuAction(async () => setFeedback('AdminTerminal listo para vaults, relay y sesiones ssh'))}>
+                          <span>About AdminTerminal</span>
                         </button>
                       </div>
                     ) : null}
@@ -3095,7 +3095,7 @@ export default function App() {
                     <div className="notification-item">
                       <span className="notification-dot is-info" />
                       <span className="notification-copy">
-                        <strong>OzyTerminal Ready</strong>
+                        <strong>AdminTerminal Ready</strong>
                         <span>All systems operational</span>
                       </span>
                     </div>
