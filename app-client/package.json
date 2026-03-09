@@ -3,26 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "npm@11.6.2",
   "scripts": {
-    "dev": "vite --config src-ui/vite.config.ts",
-    "build": "tsc --noEmit && vite build --config src-ui/vite.config.ts",
+    "dev": "npm --prefix src-ui run dev",
+    "build": "npm --prefix src-ui run build",
+    "test": "npm --prefix src-ui run test",
     "tauri:dev": "tauri dev --config src-tauri/tauri.conf.json",
     "tauri:build": "tauri build --config src-tauri/tauri.conf.json"
   },
-  "dependencies": {
-    "@tauri-apps/api": "^2.10.0",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/xterm": "^5.5.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-  },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.10.0",
-    "@types/node": "^22.10.1",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.1"
+    "@tauri-apps/cli": "^2.10.0"
   }
 }

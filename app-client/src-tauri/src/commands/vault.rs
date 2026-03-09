@@ -5,9 +5,11 @@ use std::{
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use uuid::Uuid;
 use zeroize::Zeroize;
 
+use crate::activity::{record_activity_log, NewActivityLogEntry};
 use crate::core::{control_plane::ControlPlaneConfig, ssh_client::RelayHint};
 use crate::crypto::envelope::{
     decrypt_secret_bytes, derive_master_key, derive_master_key_with_config, encrypt_secret_bytes,
@@ -45,6 +47,7 @@ pub struct VaultEntry {
     pub host: String,
     pub port: u16,
     pub username: String,
+    pub password: Option<String>,
     pub private_key_pem: String,
     pub private_key_passphrase: Option<String>,
     pub certificate_pem: Option<String>,
@@ -178,17 +181,36 @@ pub fn save_local_vault(request: SaveLocalVaultRequest) -> Result<LocalVaultResp
     let vault_path = local_vault_path()?;
     let mut master_password = request.master_password.into_bytes();
     let (metadata, existing_payload) = load_existing_context(&vault_path, &master_password)?;
+    let next_known_hosts = request.known_hosts.unwrap_or_else(|| {
+        existing_payload
+            .as_ref()
+            .map(|payload| payload.known_hosts.clone())
+            .unwrap_or_default()
+    });
     let response = persist_local_vault(
         &vault_path,
         &master_password,
         request.entries,
-        request.known_hosts.unwrap_or_else(|| {
-            existing_payload
-                .map(|payload| payload.known_hosts)
-                .unwrap_or_default()
-        }),
+        next_known_hosts,
         metadata,
     )?;
+    if let Some(previous) = existing_payload.as_ref() {
+        record_vault_collection_change("hosts", "Hosts updated", &previous.entries, &response.entries);
+        record_vault_collection_change(
+            "known-hosts",
+            "Known hosts updated",
+            &previous.known_hosts,
+            &response.known_hosts,
+        );
+    } else {
+        record_vault_collection_change("hosts", "Hosts updated", &[], &response.entries);
+        record_vault_collection_change(
+            "known-hosts",
+            "Known hosts updated",
+            &[],
+            &response.known_hosts,
+        );
+    }
     master_password.zeroize();
     Ok(response)
 }
@@ -214,6 +236,17 @@ pub fn rotate_local_vault_password(
     current_password.zeroize();
     new_password.zeroize();
 
+    let _ = record_activity_log(NewActivityLogEntry {
+        level: "success".into(),
+        category: "vault".into(),
+        host: None,
+        action: "Vault password rotated".into(),
+        details: "Local vault password rotation completed".into(),
+        metadata: json!({
+            "vaultPath": rotated.vault_path,
+        }),
+    });
+
     Ok(LocalVaultResponse {
         entries: rotated.entries,
         known_hosts: rotated.known_hosts,
@@ -225,6 +258,16 @@ pub fn rotate_local_vault_password(
 #[tauri::command]
 pub fn load_local_vault(request: LoadLocalVaultRequest) -> Result<LocalVaultResponse, String> {
     let vault_path = local_vault_path()?;
+
+    if !vault_path.exists() {
+        return Ok(LocalVaultResponse {
+            entries: Vec::new(),
+            known_hosts: Vec::new(),
+            updated_at: 0,
+            vault_path: vault_path.display().to_string(),
+        });
+    }
+
     let mut master_password = request.master_password.into_bytes();
     let (_, _, response) = read_local_vault_with_password(&vault_path, &master_password)?;
     master_password.zeroize();
@@ -460,6 +503,76 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::rename(&temp_path, path).map_err(|err| err.to_string())
 }
 
+fn record_vault_collection_change<T>(category: &str, action: &str, previous: &[T], next: &[T])
+where
+    T: Serialize + VaultComparable,
+{
+    let (created, updated, deleted) = diff_vault_collection(previous, next);
+    if created == 0 && updated == 0 && deleted == 0 {
+        return;
+    }
+
+    let _ = record_activity_log(NewActivityLogEntry {
+        level: "info".into(),
+        category: category.into(),
+        host: None,
+        action: action.into(),
+        details: format!("created: {created}, updated: {updated}, deleted: {deleted}"),
+        metadata: json!({
+            "created": created,
+            "updated": updated,
+            "deleted": deleted,
+            "total": next.len(),
+        }),
+    });
+}
+
+fn diff_vault_collection<T>(previous: &[T], next: &[T]) -> (usize, usize, usize)
+where
+    T: Serialize + VaultComparable,
+{
+    let previous_map = previous
+        .iter()
+        .map(|entry| (entry.comparable_key(), serde_json::to_value(entry).ok()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let next_map = next
+        .iter()
+        .map(|entry| (entry.comparable_key(), serde_json::to_value(entry).ok()))
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let mut created = 0;
+    let mut updated = 0;
+    for (key, next_value) in &next_map {
+        match previous_map.get(key) {
+            None => created += 1,
+            Some(previous_value) if previous_value != next_value => updated += 1,
+            _ => {}
+        }
+    }
+
+    let deleted = previous_map
+        .keys()
+        .filter(|key| !next_map.contains_key(*key))
+        .count();
+    (created, updated, deleted)
+}
+
+trait VaultComparable {
+    fn comparable_key(&self) -> String;
+}
+
+impl VaultComparable for VaultEntry {
+    fn comparable_key(&self) -> String {
+        format!("{}:{}:{}", self.host, self.port, self.username)
+    }
+}
+
+impl VaultComparable for KnownHostEntry {
+    fn comparable_key(&self) -> String {
+        format!("{}:{}:{}", self.host, self.port, self.fingerprint_sha256)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -488,6 +601,7 @@ mod tests {
             host: "127.0.0.1".into(),
             port: 22,
             username: "ozy".into(),
+            password: Some("secret-password".into()),
             private_key_pem: "pem".into(),
             private_key_passphrase: Some("secret".into()),
             certificate_pem: None,
@@ -577,6 +691,26 @@ mod tests {
         assert!(err.contains("invalid vault password"));
 
         let _ = fs::remove_file(&vault_path);
+        env::remove_var("OZYTERMINAL_VAULT_PATH");
+    }
+
+    #[test]
+    fn load_returns_empty_vault_when_file_is_missing() {
+        let _guard = env_lock().lock().expect("lock env");
+        let vault_path = test_vault_path("missing");
+        let _ = fs::remove_file(&vault_path);
+        env::set_var("OZYTERMINAL_VAULT_PATH", &vault_path);
+
+        let loaded = load_local_vault(LoadLocalVaultRequest {
+            master_password: String::new(),
+        })
+        .expect("missing vault should resolve to empty state");
+
+        assert!(loaded.entries.is_empty());
+        assert!(loaded.known_hosts.is_empty());
+        assert_eq!(loaded.updated_at, 0);
+        assert_eq!(loaded.vault_path, vault_path.display().to_string());
+
         env::remove_var("OZYTERMINAL_VAULT_PATH");
     }
 }

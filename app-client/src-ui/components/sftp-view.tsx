@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { 
   Folder, 
@@ -14,18 +15,44 @@ import {
 import { useSftp } from '@/hooks/useSftp'
 import { LocalDirectoryEntry } from '@/lib/types'
 
-export function SftpView() {
+interface SftpViewProps {
+  onSessionTitleChange?: (title: string | null) => void
+}
+
+export function SftpView({ onSessionTitleChange }: SftpViewProps) {
   const {
     localPath,
     localEntries,
     isLocalLoading,
+    localError,
+    remoteDraft,
     remotePath,
     remoteEntries,
     isRemoteLoading,
+    remoteError,
+    isRemoteConnected,
     navigateLocal,
     navigateLocalUp,
     refreshLocal,
+    updateRemoteDraft,
+    connectRemote,
+    navigateRemote,
+    navigateRemoteUp,
+    refreshRemote,
+    disconnectRemote,
   } = useSftp()
+
+  const currentSftpTitle = isRemoteConnected && remoteDraft.host.trim()
+    ? remoteDraft.host.trim()
+    : null
+
+  useEffect(() => {
+    onSessionTitleChange?.(currentSftpTitle)
+
+    return () => {
+      onSessionTitleChange?.(null)
+    }
+  }, [currentSftpTitle, onSessionTitleChange])
 
   const renderEntry = (entry: LocalDirectoryEntry, pane: 'local' | 'remote') => {
     const isFolder = entry.entryType === 'folder'
@@ -35,7 +62,18 @@ export function SftpView() {
       <div
         key={entry.path}
         className="flex items-center gap-3 px-3 py-2 hover:bg-secondary/50 rounded-lg cursor-pointer transition-colors group"
-        onDoubleClick={() => pane === 'local' && isFolder && navigateLocal(entry.path)}
+        onDoubleClick={() => {
+          if (!isFolder) {
+            return
+          }
+
+          if (pane === 'local') {
+            navigateLocal(entry.path)
+            return
+          }
+
+          void navigateRemote(entry.path)
+        }}
       >
         <Icon className={`w-4 h-4 ${isFolder ? 'text-accent' : 'text-muted-foreground'}`} />
         <span className="text-sm font-medium text-foreground truncate">{entry.name}</span>
@@ -100,6 +138,7 @@ export function SftpView() {
             {localEntries.length === 0 && !isLocalLoading ? (
               <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
                 <p className="text-sm">This folder is empty</p>
+                {localError && <p className="mt-2 text-xs text-destructive">{localError}</p>}
               </div>
             ) : (
               <div className="space-y-0.5">
@@ -109,7 +148,7 @@ export function SftpView() {
           </div>
         </div>
 
-        {/* Remote Pane (Placeholder for now) */}
+        {/* Remote Pane */}
         <div className="flex-1 flex flex-col min-w-0 bg-muted/5">
           <div className="p-3 border-b bg-muted/30 flex items-center justify-between">
             <div className="flex items-center gap-2 overflow-hidden">
@@ -117,20 +156,112 @@ export function SftpView() {
               <span className="text-xs font-mono text-muted-foreground truncate">{remotePath}</span>
             </div>
             <div className="flex items-center gap-1">
-               <RotateCw className={`w-3.5 h-3.5 text-muted-foreground ${isRemoteLoading ? 'animate-spin' : ''}`} />
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void navigateRemoteUp()} disabled={!isRemoteConnected}>
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => void refreshRemote()} disabled={!isRemoteConnected}>
+                <RotateCw className={`w-3.5 h-3.5 ${isRemoteLoading ? 'animate-spin' : ''}`} />
+              </Button>
             </div>
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-            <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center mb-4">
-              <Globe className="w-8 h-8 text-accent" />
-            </div>
-            <h3 className="text-lg font-semibold text-foreground mb-2">No Remote Session</h3>
-            <p className="text-sm text-muted-foreground max-w-[200px]">
-              Connect to a server via SSH to enable remote file browsing.
-            </p>
-            <Button variant="outline" size="sm" className="mt-4 border-accent text-accent hover:bg-accent/10">
-              Connect Now
-            </Button>
+          <div className="flex-1 min-h-0 flex flex-col">
+            {!isRemoteConnected ? (
+              <form
+                className="grid gap-3 p-4"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void connectRemote()
+                }}
+              >
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    aria-label="Remote host"
+                    value={remoteDraft.host}
+                    onChange={(event) => updateRemoteDraft({ host: event.target.value })}
+                    placeholder="Host"
+                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                  />
+                  <input
+                    aria-label="Remote port"
+                    type="number"
+                    value={remoteDraft.port}
+                    onChange={(event) => updateRemoteDraft({ port: Number(event.target.value) || 22 })}
+                    placeholder="Port"
+                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    aria-label="Remote username"
+                    value={remoteDraft.username}
+                    onChange={(event) => updateRemoteDraft({ username: event.target.value })}
+                    placeholder="Username"
+                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                  />
+                  <input
+                    aria-label="Remote start path"
+                    value={remoteDraft.startPath ?? ''}
+                    onChange={(event) => updateRemoteDraft({ startPath: event.target.value })}
+                    placeholder="/"
+                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                  />
+                </div>
+                <input
+                  aria-label="Remote password"
+                  type="password"
+                  value={remoteDraft.password ?? ''}
+                  onChange={(event) => updateRemoteDraft({ password: event.target.value })}
+                  placeholder="Password (optional if key is provided)"
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                />
+                <textarea
+                  aria-label="Remote private key"
+                  value={remoteDraft.privateKeyPem}
+                  onChange={(event) => updateRemoteDraft({ privateKeyPem: event.target.value })}
+                  placeholder="Private key PEM (optional if password is provided)"
+                  className="min-h-28 rounded-md border bg-background px-3 py-2 text-sm font-mono"
+                />
+                <input
+                  aria-label="Remote known host fingerprint"
+                  value={remoteDraft.knownHostFingerprint ?? ''}
+                  onChange={(event) => updateRemoteDraft({ knownHostFingerprint: event.target.value })}
+                  placeholder="Known host fingerprint (optional)"
+                  className="h-9 rounded-md border bg-background px-3 text-sm"
+                />
+                {remoteError && <p className="text-sm text-destructive">{remoteError}</p>}
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    Connect with password, key, or certificate-backed key flow from the backend.
+                  </p>
+                  <Button type="submit" className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isRemoteLoading}>
+                    {isRemoteLoading ? 'Connecting...' : 'Connect'}
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3 border-b p-3">
+                  <p className="text-xs text-muted-foreground">
+                    Browsing {remoteDraft.username}@{remoteDraft.host}
+                  </p>
+                  <Button variant="outline" size="sm" onClick={disconnectRemote}>
+                    Disconnect
+                  </Button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 scrollbar-thin">
+                  {remoteEntries.length === 0 && !isRemoteLoading ? (
+                    <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                      <p className="text-sm">This remote folder is empty</p>
+                      {remoteError && <p className="mt-2 text-xs text-destructive">{remoteError}</p>}
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {remoteEntries.map((entry) => renderEntry(entry, 'remote'))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

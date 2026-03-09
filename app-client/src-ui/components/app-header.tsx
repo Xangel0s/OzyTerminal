@@ -2,14 +2,46 @@
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Search, Bell, Grid3x3, Plus, Terminal, Zap, Minimize2, Maximize2, X as CloseIcon } from 'lucide-react'
+import {
+  Search,
+  Bell,
+  Grid3x3,
+  Plus,
+  Terminal,
+  Zap,
+  Minimize2,
+  Maximize2,
+  X as CloseIcon,
+  Rows3,
+  CheckCheck,
+} from 'lucide-react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+
+type HeaderNotification = {
+  id: string
+  title: string
+  detail: string
+}
 
 interface AppHeaderProps {
   activeTab: 'sftp' | 'ssh'
   activeSection: string
+  sftpSessionTitle?: string | null
+  sshSessionTitle?: string | null
   onTabChange: (tab: 'sftp' | 'ssh') => void
   onAddSsh?: () => void
+  hostViewMode?: 'grid' | 'list'
+  onToggleHostView?: () => void
+  notifications?: HeaderNotification[]
+  onClearNotifications?: () => void
 }
 
 const tabs = [
@@ -24,12 +56,26 @@ const tabs = [
 export function AppHeader({
   activeTab,
   activeSection,
+  sftpSessionTitle,
+  sshSessionTitle,
   onTabChange,
   onAddSsh,
+  hostViewMode = 'list',
+  onToggleHostView,
+  notifications = [],
+  onClearNotifications,
 }: AppHeaderProps) {
   const appWindow = typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__ 
     ? getCurrentWindow() 
     : null
+  const hasNotifications = notifications.length > 0
+  const canToggleHostView = activeSection === 'hosts'
+  const sftpTabLabel = activeTab === 'sftp' && activeSection === 'sessions' && sftpSessionTitle
+    ? sftpSessionTitle
+    : 'SFTP'
+  const sshTabLabel = activeTab === 'ssh' && activeSection === 'sessions' && sshSessionTitle
+    ? sshSessionTitle
+    : 'SSH'
 
   const minimizeWindow = () => appWindow?.minimize()
   const toggleMaximize = () => appWindow?.toggleMaximize()
@@ -53,7 +99,9 @@ export function AppHeader({
             }`}
           >
             {tab.icon}
-            <span className="hidden sm:inline">{tab.label}</span>
+            <span className="hidden max-w-40 truncate sm:inline" title={tab.id === 'ssh' ? sshTabLabel : sftpTabLabel}>
+              {tab.id === 'ssh' ? sshTabLabel : sftpTabLabel}
+            </span>
           </button>
         ))}
       </div>
@@ -85,18 +133,57 @@ export function AppHeader({
 
       {/* Notifications and Utils */}
       <div className="flex items-center gap-1" data-no-drag="true">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative"
-          aria-label="Notifications"
-        >
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-accent rounded-full" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative"
+              aria-label="Notifications"
+            >
+              <Bell className="w-5 h-5" />
+              {hasNotifications ? <span className="absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full bg-orange-500 ring-2 ring-card" /> : null}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80">
+            <DropdownMenuLabel className="flex items-center justify-between gap-3">
+              <span>Notifications</span>
+              <span className="text-xs font-normal text-muted-foreground">{notifications.length} pending</span>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {hasNotifications ? (
+              notifications.map((notification) => (
+                <DropdownMenuItem key={notification.id} className="flex flex-col items-start gap-1 py-3">
+                  <span className="text-sm font-medium text-foreground">{notification.title}</span>
+                  <span className="text-xs leading-relaxed text-muted-foreground">{notification.detail}</span>
+                </DropdownMenuItem>
+              ))
+            ) : (
+              <DropdownMenuItem disabled className="py-3 text-muted-foreground">
+                No pending notifications.
+              </DropdownMenuItem>
+            )}
+            {hasNotifications && onClearNotifications ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onClearNotifications} className="gap-2">
+                  <CheckCheck className="h-4 w-4" />
+                  Mark all as read
+                </DropdownMenuItem>
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        <Button variant="ghost" size="icon" aria-label="Toggle view">
-          <Grid3x3 className="w-5 h-5" />
+        <Button
+          variant={canToggleHostView ? 'secondary' : 'ghost'}
+          size="icon"
+          aria-label="Toggle host view"
+          onClick={onToggleHostView}
+          disabled={!canToggleHostView || !onToggleHostView}
+          title={hostViewMode === 'grid' ? 'Switch to list view' : 'Switch to grid view'}
+        >
+          {hostViewMode === 'grid' ? <Rows3 className="w-5 h-5" /> : <Grid3x3 className="w-5 h-5" />}
         </Button>
       </div>
 

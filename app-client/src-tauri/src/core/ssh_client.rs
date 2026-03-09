@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
@@ -80,9 +80,32 @@ pub struct TerminalErrorPayload {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TerminalEvent {
     Connected { session_id: Uuid },
+    Diagnostic {
+        phase: String,
+        message: String,
+        elapsed_ms: u64,
+    },
     Stdout { chunk_b64: String },
     Closed { reason: String },
     Error { error: TerminalErrorPayload },
+}
+
+fn emit_diagnostic(
+    event_tx: &broadcast::Sender<TerminalEvent>,
+    started_at: Instant,
+    phase: &str,
+    message: impl Into<String>,
+) {
+    let elapsed_ms = started_at.elapsed().as_millis() as u64;
+    let message = message.into();
+
+    let _ = event_tx.send(TerminalEvent::Diagnostic {
+        phase: phase.into(),
+        message: message.clone(),
+        elapsed_ms,
+    });
+
+    info!(phase, elapsed_ms, diagnostic_message = %message, "ssh session diagnostic");
 }
 
 #[derive(Debug, Default)]
@@ -115,14 +138,14 @@ impl client::Handler for OzyClient {
     }
 }
 
-pub async fn connect_ssh(
-    session_id: Uuid,
-    request: SshSessionRequest,
-    mut input_rx: mpsc::Receiver<TerminalInput>,
-    event_tx: broadcast::Sender<TerminalEvent>,
-) -> Result<()> {
+pub(crate) async fn establish_authenticated_session(
+    request: &SshSessionRequest,
+    event_tx: &broadcast::Sender<TerminalEvent>,
+) -> Result<client::Handle<OzyClient>> {
     let config = Arc::new(client::Config {
-        inactivity_timeout: Some(std::time::Duration::from_secs(30)),
+        inactivity_timeout: None,
+        keepalive_interval: Some(std::time::Duration::from_secs(15)),
+        keepalive_max: 3,
         ..Default::default()
     });
 
@@ -130,7 +153,7 @@ pub async fn connect_ssh(
         expected_host_fingerprint: request.known_host_fingerprint.clone(),
     };
 
-    let resolved_relay = resolve_relay_hint(&request, &event_tx)
+    let resolved_relay = resolve_relay_hint(request, event_tx)
         .await
         .context("relay resolution failed")?;
     let mut session = if let Some(relay) = resolved_relay.as_ref() {
@@ -149,7 +172,53 @@ pub async fn connect_ssh(
     let has_password = request.password.as_ref().is_some_and(|p| !p.trim().is_empty());
     let has_private_key = !request.private_key_pem.trim().is_empty();
 
-    if has_password && !has_private_key {
+    if has_private_key {
+        let private_key_auth = async {
+            let private_key = Arc::new(load_private_key(
+                &request.private_key_pem,
+                request.private_key_passphrase.as_deref(),
+            )?);
+
+            let certificate_pem = resolve_certificate_pem(request, event_tx)
+                .await
+                .context("certificate resolution failed")?;
+
+            authenticate_session(
+                &mut session,
+                &request.username,
+                private_key.clone(),
+                certificate_pem.as_deref(),
+            )
+            .await
+            .context("ssh authentication failed")
+        }
+        .await;
+
+        match private_key_auth {
+            Ok(()) => {}
+            Err(key_error) if has_password => {
+                emit_diagnostic(
+                    event_tx,
+                    Instant::now(),
+                    "auth_fallback_password",
+                    format!(
+                        "La autenticacion por clave fallo; se intenta password para {}",
+                        request.username
+                    ),
+                );
+                authenticate_session_password(
+                    &mut session,
+                    &request.username,
+                    request.password.as_deref().unwrap_or_default(),
+                )
+                .await
+                .with_context(|| format!(
+                    "ssh password authentication failed after key auth fallback: {key_error}"
+                ))?;
+            }
+            Err(key_error) => return Err(key_error),
+        }
+    } else if has_password {
         authenticate_session_password(
             &mut session,
             &request.username,
@@ -158,37 +227,66 @@ pub async fn connect_ssh(
         .await
         .context("ssh password authentication failed")?;
     } else {
-        let private_key = Arc::new(load_private_key(
-            &request.private_key_pem,
-            request.private_key_passphrase.as_deref(),
-        )?);
-
-        let certificate_pem = resolve_certificate_pem(&request, &event_tx)
-            .await
-            .context("certificate resolution failed")?;
-
-        authenticate_session(
-            &mut session,
-            &request.username,
-            private_key.clone(),
-            certificate_pem.as_deref(),
-        )
-        .await
-        .context("ssh authentication failed")?;
+        return Err(anyhow!("no valid authentication method was provided"));
     }
+
+    Ok(session)
+}
+
+pub async fn connect_ssh(
+    session_id: Uuid,
+    request: SshSessionRequest,
+    mut input_rx: mpsc::Receiver<TerminalInput>,
+    event_tx: broadcast::Sender<TerminalEvent>,
+) -> Result<()> {
+    let started_at = Instant::now();
+    emit_diagnostic(
+        &event_tx,
+        started_at,
+        "transport_connecting",
+        format!("Iniciando transporte SSH hacia {}:{}", request.host, request.port),
+    );
+
+    let session = establish_authenticated_session(&request, &event_tx).await?;
+    emit_diagnostic(
+        &event_tx,
+        started_at,
+        "authenticated",
+        format!("Autenticacion aceptada para {}", request.username),
+    );
 
     let mut channel = session
         .channel_open_session()
         .await
         .context("ssh shell channel open failed")?;
+    emit_diagnostic(
+        &event_tx,
+        started_at,
+        "channel_opened",
+        "Canal de shell SSH abierto",
+    );
+
     channel
         .request_pty(false, DEFAULT_TERM, request.cols, request.rows, 0, 0, &[])
         .await
         .context("ssh pty request failed")?;
+    emit_diagnostic(
+        &event_tx,
+        started_at,
+        "pty_ready",
+        format!("PTY remoto negociado en {}x{}", request.cols, request.rows),
+    );
+
     channel
         .request_shell(true)
         .await
         .context("ssh shell request failed")?;
+    emit_diagnostic(
+        &event_tx,
+        started_at,
+        "shell_requested",
+        "Shell interactivo solicitado al servidor",
+    );
 
     let _ = event_tx.send(TerminalEvent::Connected { session_id });
     let _ = event_tx.send(TerminalEvent::Stdout {
@@ -197,7 +295,17 @@ pub async fn connect_ssh(
             request.host, request.port, request.username
         ))),
     });
+    emit_diagnostic(
+        &event_tx,
+        started_at,
+        "session_connected",
+        format!("Sesion lista para recibir input en {} ms", started_at.elapsed().as_millis()),
+    );
     info!(%session_id, host = %request.host, port = request.port, "ssh session opened");
+
+    let mut first_output_seen = false;
+    let mut last_exit_status: Option<u32> = None;
+    let mut last_exit_signal: Option<String> = None;
 
     loop {
         tokio::select! {
@@ -218,6 +326,12 @@ pub async fn connect_ssh(
                             .context("failed to resize ssh pty")?;
                     }
                     Some(TerminalInput::Close) => {
+                        emit_diagnostic(
+                            &event_tx,
+                            started_at,
+                            "client_close",
+                            "Cierre solicitado por el cliente",
+                        );
                         let _ = channel.eof().await;
                         let _ = channel.close().await;
                         let _ = event_tx.send(TerminalEvent::Closed {
@@ -232,18 +346,80 @@ pub async fn connect_ssh(
             message = channel.wait() => {
                 match message {
                     Some(ChannelMsg::Data { data }) => {
+                        if !first_output_seen {
+                            first_output_seen = true;
+                            emit_diagnostic(
+                                &event_tx,
+                                started_at,
+                                "first_stdout",
+                                format!("Primer bloque de salida recibido ({} bytes)", data.len()),
+                            );
+                        }
                         let _ = event_tx.send(TerminalEvent::Stdout {
                             chunk_b64: encode_chunk(Bytes::copy_from_slice(data.as_ref())),
                         });
                     }
                     Some(ChannelMsg::ExtendedData { data, .. }) => {
+                        if !first_output_seen {
+                            first_output_seen = true;
+                            emit_diagnostic(
+                                &event_tx,
+                                started_at,
+                                "first_stdout",
+                                format!("Primer bloque de salida extendida recibido ({} bytes)", data.len()),
+                            );
+                        }
                         let _ = event_tx.send(TerminalEvent::Stdout {
                             chunk_b64: encode_chunk(Bytes::copy_from_slice(data.as_ref())),
                         });
                     }
+                    Some(ChannelMsg::ExitStatus { exit_status }) => {
+                        last_exit_status = Some(exit_status);
+                        emit_diagnostic(
+                            &event_tx,
+                            started_at,
+                            "remote_exit_status",
+                            format!("El servidor reporto exit-status={exit_status}"),
+                        );
+                    }
+                    Some(ChannelMsg::ExitSignal {
+                        signal_name,
+                        core_dumped,
+                        error_message,
+                        lang_tag,
+                    }) => {
+                        let description = format!(
+                            "El servidor reporto exit-signal={signal_name:?}, core_dumped={core_dumped}, message={error_message}, lang={lang_tag}"
+                        );
+                        last_exit_signal = Some(description.clone());
+                        emit_diagnostic(
+                            &event_tx,
+                            started_at,
+                            "remote_exit_signal",
+                            description,
+                        );
+                    }
                     Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => {
+                        let reason = match (last_exit_status, last_exit_signal.as_deref()) {
+                            (Some(exit_status), Some(exit_signal)) => {
+                                format!("remote closed channel (exit status {exit_status}; {exit_signal})")
+                            }
+                            (Some(exit_status), None) => {
+                                format!("remote closed channel (exit status {exit_status})")
+                            }
+                            (None, Some(exit_signal)) => {
+                                format!("remote closed channel ({exit_signal})")
+                            }
+                            (None, None) => "remote closed channel".into(),
+                        };
+                        emit_diagnostic(
+                            &event_tx,
+                            started_at,
+                            "remote_close",
+                            reason.clone(),
+                        );
                         let _ = event_tx.send(TerminalEvent::Closed {
-                            reason: "remote closed channel".into(),
+                            reason,
                         });
                         break;
                     }
@@ -256,8 +432,26 @@ pub async fn connect_ssh(
                         });
                     }
                     None => {
+                        let reason = match (last_exit_status, last_exit_signal.as_deref()) {
+                            (Some(exit_status), Some(exit_signal)) => {
+                                format!("channel finished (exit status {exit_status}; {exit_signal})")
+                            }
+                            (Some(exit_status), None) => {
+                                format!("channel finished (exit status {exit_status})")
+                            }
+                            (None, Some(exit_signal)) => {
+                                format!("channel finished ({exit_signal})")
+                            }
+                            (None, None) => "channel finished".into(),
+                        };
+                        emit_diagnostic(
+                            &event_tx,
+                            started_at,
+                            "channel_finished",
+                            reason.clone(),
+                        );
                         let _ = event_tx.send(TerminalEvent::Closed {
-                            reason: "channel finished".into(),
+                            reason,
                         });
                         break;
                     }
@@ -942,6 +1136,7 @@ mod tests {
                     host: "127.0.0.1".into(),
                     port: server_addr.port(),
                     username: "ozy".into(),
+                    password: None,
                     private_key_pem,
                     private_key_passphrase: None,
                     certificate_pem,

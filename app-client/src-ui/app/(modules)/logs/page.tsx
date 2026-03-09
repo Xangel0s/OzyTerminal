@@ -3,58 +3,12 @@
 import { Button } from '@/components/ui/button'
 import { Clock, Trash2, Download, Filter } from 'lucide-react'
 import { useState } from 'react'
-
-interface LogEntry {
-  id: string
-  timestamp: string
-  level: 'info' | 'warning' | 'error' | 'success'
-  host: string
-  action: string
-  details: string
-}
-
-const mockLogs: LogEntry[] = [
-  {
-    id: '1',
-    timestamp: '2024-01-22 14:35:22',
-    level: 'success',
-    host: 'Production Server',
-    action: 'SSH Connection',
-    details: 'Successfully connected to prod-server via SSH',
-  },
-  {
-    id: '2',
-    timestamp: '2024-01-22 14:28:45',
-    level: 'info',
-    host: 'Development Server',
-    action: 'File Transfer',
-    details: 'Uploaded 3 files via SFTP (125.4 MB)',
-  },
-  {
-    id: '3',
-    timestamp: '2024-01-22 14:15:10',
-    level: 'warning',
-    host: 'Backup Server',
-    action: 'Connection Timeout',
-    details: 'Connection attempt timed out after 30 seconds',
-  },
-  {
-    id: '4',
-    timestamp: '2024-01-22 13:52:33',
-    level: 'error',
-    host: 'Production Server',
-    action: 'Authentication Failed',
-    details: 'SSH key verification failed - invalid fingerprint',
-  },
-  {
-    id: '5',
-    timestamp: '2024-01-22 13:45:12',
-    level: 'success',
-    host: 'Development Server',
-    action: 'Port Forward',
-    details: 'Port forwarding tunnel established (localhost:5432)',
-  },
-]
+import { BsActivity } from 'react-icons/bs'
+import { HiOutlineStatusOnline } from 'react-icons/hi'
+import { MdErrorOutline, MdInfoOutline, MdWarningAmber } from 'react-icons/md'
+import type { IconType } from 'react-icons'
+import { useActivityLogs } from '@/hooks/useActivityLogs'
+import type { ActivityLogEntry } from '@/lib/types'
 
 const levelColors = {
   info: 'text-blue-400 bg-blue-500/10',
@@ -70,13 +24,20 @@ const levelLabels = {
   success: 'Success',
 }
 
+const levelIcons: Record<'info' | 'warning' | 'error' | 'success', IconType> = {
+  info: MdInfoOutline,
+  warning: MdWarningAmber,
+  error: MdErrorOutline,
+  success: HiOutlineStatusOnline,
+}
+
 export default function LogsPage() {
-  const [logs, setLogs] = useState<LogEntry[]>(mockLogs)
-  const [filterLevel, setFilterLevel] = useState<'all' | LogEntry['level']>('all')
+  const { logs, clearLogs, error } = useActivityLogs()
+  const [filterLevel, setFilterLevel] = useState<'all' | ActivityLogEntry['level']>('all')
 
   const handleClearLogs = () => {
     if (confirm('Are you sure you want to clear all logs?')) {
-      setLogs([])
+      void clearLogs()
     }
   }
 
@@ -111,7 +72,7 @@ export default function LogsPage() {
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <Clock className="w-5 h-5 text-accent" />
+          <BsActivity className="h-5 w-5 text-accent" />
           <h1 className="text-2xl font-bold text-foreground">Activity Logs</h1>
         </div>
         <div className="flex gap-2">
@@ -120,6 +81,7 @@ export default function LogsPage() {
             size="sm"
             onClick={handleExportLogs}
             className="hover:bg-accent/10"
+            disabled={logs.length === 0}
           >
             <Download className="w-4 h-4 mr-2" />
             Export
@@ -135,6 +97,12 @@ export default function LogsPage() {
           </Button>
         </div>
       </div>
+
+      {error ? (
+        <div className="mb-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </div>
+      ) : null}
 
       {/* Filters */}
       <div className="mb-6 flex gap-2">
@@ -167,7 +135,7 @@ export default function LogsPage() {
       {filteredLogs.length === 0 ? (
         <div className="flex items-center justify-center min-h-96 border border-border rounded-lg">
           <div className="text-center">
-            <Clock className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+            <BsActivity className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
             <p className="text-foreground font-medium mb-2">No logs found</p>
             <p className="text-muted-foreground text-sm">
               Your activity will appear here
@@ -176,13 +144,20 @@ export default function LogsPage() {
         </div>
       ) : (
         <div className="space-y-3 max-h-96 overflow-auto">
-          {filteredLogs.map((log) => (
+          {filteredLogs.map((log) => {
+            const LevelIcon = levelIcons[(log.level in levelIcons ? log.level : 'info') as keyof typeof levelIcons]
+
+            return (
             <div
               key={log.id}
               className="bg-card border border-border rounded-lg p-4 hover:border-accent/50 transition-colors"
             >
               <div className="flex items-start justify-between">
-                <div className="flex-1">
+                <div className="flex flex-1 items-start gap-4">
+                  <div className={`mt-1 flex h-11 w-11 items-center justify-center rounded-xl ${levelColors[log.level]}`}>
+                    <LevelIcon className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <span
                       className={`px-2 py-1 rounded text-xs font-medium ${levelColors[log.level]}`}
@@ -203,9 +178,11 @@ export default function LogsPage() {
                     {log.details}
                   </p>
                 </div>
+                </div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

@@ -5,4 +5,5 @@ pub mod history;
 pub mod host;
 pub mod import;
 pub mod session;
+pub mod storage;
 pub mod vault;

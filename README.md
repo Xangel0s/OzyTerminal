@@ -228,8 +228,15 @@ As of 2026-03-07:
 app-client/      Desktop app (Tauri + React + russh)
 control-plane/   CA, relay, lease orchestration, audit
 agent-node/      Reverse connector for CGNAT/private nodes
-Ozyterminal.md   Product architecture and phased roadmap
+docs/            Technical docs, operational checklists, and design reference assets
 ```
+
+Notes:
+
+- The only active frontend lives in `app-client/src-ui`.
+- `docs/architecture/` contains technical structure and architecture references.
+- `docs/operations/` contains package-manager rules and operational troubleshooting guides.
+- `docs/design-assets/` contains visual reference material only; it is not an executable frontend.
 
 ## Current Limits
 

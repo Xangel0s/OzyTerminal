@@ -1,4 +1,5 @@
 pub mod app_state;
+pub mod activity;
 pub mod collab;
 pub mod commands;
 pub mod core;
@@ -33,6 +34,7 @@ pub fn run() {
             commands::control_plane::issue_relay_lease_command,
             commands::control_plane::issue_ssh_certificate_command,
             commands::filesystem::list_local_directory_command,
+            commands::filesystem::list_remote_directory_command,
             commands::history::list_recent_connections_command,
             commands::history::record_recent_connection_command,
             commands::host::probe_ssh_host_key_command,
@@ -41,6 +43,12 @@ pub fn run() {
             commands::session::send_input,
             commands::session::resize_session,
             commands::session::close_session,
+            commands::storage::load_app_data_command,
+            commands::storage::save_keychain_entries_command,
+            commands::storage::save_snippets_command,
+            commands::storage::save_port_forwards_command,
+            commands::storage::list_activity_logs_command,
+            commands::storage::clear_activity_logs_command,
             commands::vault::encrypt_secret,
             commands::vault::save_local_vault,
             commands::vault::load_local_vault,

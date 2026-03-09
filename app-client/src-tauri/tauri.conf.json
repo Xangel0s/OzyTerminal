@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "com.ozyterminal.app",
   "build": {
-    "beforeDevCommand": "pnpm --dir src-ui dev",
-    "beforeBuildCommand": "pnpm --dir src-ui build",
-    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "node scripts/ensure-next-dev.mjs",
+    "beforeBuildCommand": "npm --prefix src-ui run build",
+    "devUrl": "http://127.0.0.1:3000",
     "frontendDist": "../src-ui/out"
   },
   "app": {
@@ -16,7 +16,8 @@
         "width": 1440,
         "height": 900,
         "resizable": true,
-        "decorations": false
+        "decorations": false,
+        "shadow": true
       }
     ],
     "security": {

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Terminal Emulator Replica</title>
+<!-- Load Tailwind CSS v3 with plugins -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Configure Tailwind -->
+<script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'app-bg': '#1e1e24',
+                        'term-bg': '#131316',
+                        'sidebar-bg': '#2b2d31',
+                        'sidebar-surface': '#36393f',
+                        'accent-green': '#4ade80',
+                        'term-green': '#3b8eea', /* Adjusted to match image prompt color slightly better, looks cyan/green mix */
+                        'term-cmd-green': '#22c55e',
+                    },
+                    fontFamily: {
+                        'mono': ['"Fira Code"', 'monospace'],
+                        'sans': ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+<!-- Custom Styles -->
+<style data-purpose="custom-scrollbar">
+        /* Custom Scrollbar for Webkit */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+    </style>
+<style data-purpose="terminal-cursor">
+        .cursor-blink {
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+    </style>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/></head>
+<body class="bg-black text-gray-300 font-sans h-screen flex flex-col overflow-hidden selection:bg-gray-700 selection:text-white">
+<!-- BEGIN: TopBar -->
+<header class="h-10 bg-[#1e1e24] flex items-center justify-between px-2 select-none border-b border-gray-800">
+<!-- Left: Tabs -->
+<div class="flex items-center space-x-1 h-full pt-1"><!-- Inactive Tab -->
+<div class="flex items-center px-4 py-1.5 text-xs text-gray-500 hover:text-gray-300 cursor-pointer rounded-t-md opacity-80 hover:opacity-100 transition-opacity bg-[#2b2d31]/50 border-t border-transparent hover:border-gray-700 mr-1">
+<svg class="w-3.5 h-3.5 mr-2" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+    Vaults
+</div>
+<!-- Inactive Tab -->
+<div class="flex items-center px-4 py-1.5 text-xs text-gray-500 hover:text-gray-300 cursor-pointer rounded-t-md opacity-80 hover:opacity-100 transition-opacity bg-[#2b2d31]/50 border-t border-transparent hover:border-gray-700 mr-1">
+<svg class="w-3.5 h-3.5 mr-2" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+    SFTP
+</div>
+<!-- Active Tab -->
+<div class="flex items-center px-4 py-1.5 text-xs text-gray-200 bg-[#36393f] border-t border-x border-gray-700 rounded-t-md relative top-[1px]">
+<svg class="w-3.5 h-3.5 mr-2 text-green-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+    Server Coolify
+    <button class="ml-3 hover:bg-gray-600 rounded-full p-0.5">
+<svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button>
+</div>
+<button class="ml-2 hover:bg-gray-700 rounded p-1 text-gray-400">
+<svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 6v6m0 0v6m0-6h6m-6 0H6" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</button></div>
+<!-- Center: Search Bar -->
+<div class="flex-1 flex justify-center mx-4">
+<div class="relative w-full max-w-md">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<svg class="h-4 w-4 text-gray-500" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+<input class="block w-full bg-[#131316] border border-gray-700 text-gray-300 text-xs rounded-lg py-1.5 pl-9 pr-8 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-600" placeholder="Search" type="text"/>
+<div class="absolute inset-y-0 right-0 pr-2 flex items-center pointer-events-none">
+<span class="border border-gray-600 rounded px-1.5 py-0.5 text-[10px] text-gray-500">_&gt;</span>
+</div>
+</div>
+</div>
+<!-- Right: Window Controls -->
+<div class="flex items-center space-x-3 text-gray-400 mr-2">
+<button class="hover:text-white"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>
+<button class="hover:text-white"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 6h16M4 12h16m-7 6h7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>
+<div class="h-4 w-px bg-gray-700 mx-2"></div>
+<button class="hover:text-white"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M20 12H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>
+<button class="hover:text-white"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 4h16v16H4z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>
+<button class="hover:text-red-500"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M6 18L18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>
+</div>
+</header>
+<!-- END: TopBar -->
+<!-- BEGIN: MainContent -->
+<main class="flex flex-1 overflow-hidden">
+<!-- BEGIN: Terminal Area -->
+<section class="flex-1 bg-[#131316] p-4 font-mono text-sm overflow-y-auto leading-relaxed relative"><div class="text-gray-300 font-mono">
+<p class="mb-4">Para ver estas actualizaciones adicionales, ejecute: apt list --upgradable</p>
+<p class="mb-4 text-gray-400">
+                    Active ESN Apps para recibir futuras actualizaciones de seguridad adicionales.<br/>
+                    Vea https://ubuntu.com/esm o ejecute &lt;sudo pro status&gt;
+                </p>
+<p class="mb-1 text-gray-500">Last login: Fri Feb 13 14:26:43 2026 from <span class="text-pink-700">192.168.18.26</span></p>
+<!-- Command Block 1 -->
+<div class="flex">
+<span class="text-[#4ade80] font-bold mr-2">sysadmin@ubuntu-geofal:~$</span>
+<span class="text-white">ls</span>
+</div>
+<!-- Command Block 2 -->
+<div class="flex">
+<span class="text-[#4ade80] font-bold mr-2">sysadmin@ubuntu-geofal:~$</span>
+<span class="text-white">btop</span>
+</div>
+<div class="text-gray-400 mb-1"><div class="text-[#a0a0a0]">Obj:1 https://download.docker.com/linux/ubuntu noble InRelease</div>
+<div class="text-[#a0a0a0]">Obj:2 http://pe.archive.ubuntu.com/ubuntu noble InRelease</div>
+<div class="text-[#a0a0a0]">Des:3 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]</div>
+<div class="text-[#a0a0a0]">Des:4 http://pe.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]</div>
+<div class="text-[#a0a0a0]">Des:5 https://pkgs.tailscale.com/stable/ubuntu noble InRelease</div>
+<div class="text-[#a0a0a0]">Des:6 http://pe.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]</div>
+<div class="text-[#a0a0a0]">Des:7 http://security.ubuntu.com/ubuntu noble-security/main amd64 Components [21,5 kB]</div>
+<div class="text-[#a0a0a0]">Des:8 http://pe.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1.806 kB]</div>
+<div class="text-[#a0a0a0]">Des:9 http://security.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]</div>
+<div class="text-[#a0a0a0]">Des:10 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Components [74,2 kB]</div>
+<div class="text-[#a0a0a0]">Des:11 http://security.ubuntu.com/ubuntu noble-security/multiverse amd64 Components [212 B]</div>
+<div class="text-[#a0a0a0]">Des:12 http://pe.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [178 kB]</div>
+<div class="text-[#a0a0a0]">Des:13 http://pe.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]</div>
+<div class="text-[#a0a0a0]">Des:14 http://pe.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1.564 kB]</div>
+<div class="text-[#a0a0a0]">Des:15 http://pe.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [386 kB]</div>
+<div class="text-[#a0a0a0]">Des:16 http://pe.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]</div>
+<div class="text-[#a0a0a0]">Des:17 http://pe.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [7.284 B]</div>
+<div class="text-[#a0a0a0]">Des:18 http://pe.archive.ubuntu.com/ubuntu noble-backports/restricted amd64 Components [216 B]</div>
+<div class="text-[#a0a0a0]">Des:19 http://pe.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [10,5 kB]</div>
+<div class="text-[#a0a0a0]">Des:20 http://pe.archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Components [212 B]</div>
+<div class="text-[#a0a0a0]">Descargados 4.433 kB en 2s (1.924 kB/s)</div>
+<div class="text-[#a0a0a0]">Leyendo lista de paquetes... Hecho</div>
+<div class="text-[#a0a0a0]">Creando árbol de dependencias... Hecho</div>
+<div class="text-[#a0a0a0]">Leyendo la información de estado... Hecho</div>
+<div class="text-white mt-1">Se pueden actualizar 19 paquetes. Ejecute &lt;apt list --upgradable&gt; para verlos.</div></div>
+<!-- Command Block 3 -->
+<div class="flex">
+<span class="text-[#4ade80] font-bold mr-2">sysadmin@ubuntu-geofal:~$</span>
+<span class="text-white">sudo apt update</span>
+</div>
+<div class="text-gray-400 mb-1">
+                    [sudo] password for sysadmin:
+                </div>
+<div class="text-gray-400">
+<div>Obj:1 https://download.docker.com/linux/ubuntu noble InRelease</div>
+<div>Obj:2 http://pe.archive.ubuntu.com/ubuntu noble InRelease</div>
+<div>Des:3 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]</div>
+<div>Des:4 http://pe.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]</div>
+<div>Des:5 https://pkgs.tailscale.com/stable/ubuntu noble InRelease</div>
+<div>Des:6 http://pe.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]</div>
+<div>Des:7 http://security.ubuntu.com/ubuntu noble-security/main amd64 Components [21,5 kB]</div>
+<div>Des:8 http://pe.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1.806 kB]</div>
+<div>Des:9 http://security.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]</div>
+<div>Des:10 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Components [74,2 kB]</div>
+<div>Des:11 http://security.ubuntu.com/ubuntu noble-security/multiverse amd64 Components [212 B]</div>
+<div>Des:12 http://pe.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [178 kB]</div>
+<div>Des:13 http://pe.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]</div>
+<div>Des:14 http://pe.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1.564 kB]</div>
+<div>Des:15 http://pe.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [386 kB]</div>
+<div>Des:16 http://pe.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]</div>
+<div>Des:17 http://pe.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [7.284 B]</div>
+<div>Des:18 http://pe.archive.ubuntu.com/ubuntu noble-backports/restricted amd64 Components [216 B]</div>
+<div>Des:19 http://pe.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [10,5 kB]</div>
+<div>Des:20 http://pe.archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Components [212 B]</div>
+<div>Descargados 4.433 kB en 2s (1.924 kB/s)</div>
+<div>Leyendo lista de paquetes... Hecho</div>
+<div>Creando árbol de dependencias... Hecho</div>
+<div>Leyendo la información de estado... Hecho</div>
+<div>Se pueden actualizar 19 paquetes. Ejecute &lt;apt list --upgradable&gt; para verlos.</div>
+</div>
+<!-- Current Prompt -->
+<div class="flex mt-1">
+<span class="text-[#4ade80] font-bold mr-2">sysadmin@ubuntu-geofal:~$</span>
+<span class="w-2 h-5 bg-gray-400 inline-block align-middle cursor-blink"></span>
+</div>
+</div></section>
+<!-- END: Terminal Area -->
+<!-- BEGIN: Settings Sidebar -->
+<aside class="w-[340px] bg-[#2b2d31] flex flex-col border-l border-gray-800">
+<!-- Sidebar Header / Toolbar -->
+<div class="h-14 flex items-center justify-between px-4 border-b border-gray-700 shrink-0">
+<div class="flex space-x-2">
+<!-- Icon: Rocket -->
+<button class="text-gray-500 hover:text-gray-300 transition-colors p-2">
+<span class="material-symbols-outlined text-[20px]">rocket_launch</span>
+</button>
+<!-- Icon: Braces -->
+<button class="text-gray-500 hover:text-gray-300 transition-colors p-2">
+<span class="material-symbols-outlined text-[20px]">code</span>
+</button>
+<!-- Icon: Info -->
+<button class="text-gray-500 hover:text-gray-300 transition-colors p-2">
+<span class="material-symbols-outlined text-[20px]">info</span>
+</button>
+<!-- Icon: Palette (Active) -->
+<button class="text-[#4ade80] bg-[#4ade80]/10 rounded-full p-2 flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">palette</span>
+</button>
+</div>
+<button class="text-gray-500 hover:text-white p-2">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<!-- Content Area -->
+<div class="flex-1 overflow-y-auto px-4 py-4 space-y-6 scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-transparent">
+<!-- Font Settings Section -->
+<div><h3 class="text-gray-400 text-sm font-medium mb-3">Font</h3>
+<div class="mb-4">
+<label class="block text-xs text-gray-500 mb-1">Font Family</label>
+<div class="relative">
+<select class="w-full bg-[#2b2d31] hover:bg-[#36393f] text-gray-200 text-sm border-none rounded-md py-2.5 px-3 appearance-none focus:ring-1 focus:ring-green-500 cursor-pointer transition-colors">
+<option>Fira Code</option>
+<option>JetBrains Mono</option>
+<option>Consolas</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+<svg class="h-4 w-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+</div>
+</div>
+<div>
+<label class="block text-xs text-gray-500 mb-1">Font Size</label>
+<div class="relative">
+<select class="w-full bg-[#2b2d31] hover:bg-[#36393f] text-gray-200 text-sm border-none rounded-md py-2.5 px-3 appearance-none focus:ring-1 focus:ring-green-500 cursor-pointer transition-colors">
+<option>14px</option>
+<option>12px</option>
+<option>16px</option>
+</select>
+<div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+<svg class="h-4 w-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M19 9l-7 7-7-7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+</div>
+</div>
+</div></div>
+<!-- Themes List Section -->
+<div><!-- Card: Termius Dark (Active) -->
+<div class="group relative bg-[#36393f] rounded-lg p-3 border-2 border-[#4ade80] cursor-pointer mb-3 flex items-center hover:bg-[#3f434a] transition-colors"><!-- Theme Preview -->
+<div class="w-12 h-8 bg-[#1e1e24] rounded-md border border-gray-600 mr-3 flex flex-col justify-center px-1.5 space-y-1">
+<div class="h-1 w-3/4 bg-[#4ade80] rounded-full"></div>
+<div class="h-1 w-1/2 bg-[#22c55e] rounded-full"></div>
+</div>
+<!-- Info -->
+<div class="flex-1">
+<div class="text-sm font-medium text-white">Termius Dark</div>
+<div class="text-xs text-gray-500">co</div>
+</div>
+<!-- Checkmark -->
+<div class="bg-[#4ade80] rounded-full p-0.5"><span class="material-symbols-outlined text-[#4ade80]" style="font-variation-settings: 'FILL' 1;">check_circle</span></div></div>
+<!-- Card: Hacker Green -->
+<div class="group relative bg-[#2b2d31] rounded-lg p-3 border border-gray-700 hover:border-gray-600 cursor-pointer mb-3 flex items-center hover:bg-[#36393f] transition-colors"><div class="w-12 h-8 bg-black rounded-md border border-gray-600 mr-3 flex flex-col justify-center px-1.5 space-y-1">
+<div class="h-1 w-3/4 bg-[#00ff00] rounded-full"></div>
+<div class="h-1 w-1/2 bg-[#00cc00] rounded-full"></div>
+</div>
+<div class="flex-1">
+<div class="text-sm font-medium text-gray-300">Hacker Green</div>
+<div class="text-xs text-gray-500 flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[10px] mr-1">group</span>
+            10955
+        </div>
+</div></div>
+<!-- Card: Kanagawa Wave -->
+<div class="group relative bg-[#2b2d31] rounded-lg p-3 border border-gray-700 hover:border-gray-600 cursor-pointer mb-3 flex items-center hover:bg-[#36393f] transition-colors"><div class="w-12 h-8 bg-[#1f1f28] rounded-md border border-gray-600 mr-3 flex flex-col justify-center px-1.5 space-y-1">
+<div class="h-1 w-3/4 bg-[#7e9cd8] rounded-full"></div>
+<div class="h-1 w-1/2 bg-[#957fb8] rounded-full"></div>
+</div>
+<div class="flex-1">
+<div class="text-sm font-medium text-gray-300">Kanagawa Wave</div>
+<div class="text-xs text-gray-500 flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[10px] mr-1">group</span>
+            18228
+        </div>
+</div></div>
+<!-- Card: Flexoki Dark -->
+<div class="group relative bg-[#2b2d31] rounded-lg p-3 border border-gray-700 hover:border-gray-600 cursor-pointer mb-3 flex items-center hover:bg-[#36393f] transition-colors"><div class="w-12 h-8 bg-[#100F0F] rounded-md border border-gray-600 mr-3 flex flex-col justify-center px-1.5 space-y-1">
+<div class="h-1 w-3/4 bg-[#D0A215] rounded-full"></div>
+<div class="h-1 w-1/2 bg-[#878580] rounded-full"></div>
+</div>
+<div class="flex-1">
+<div class="text-sm font-medium text-gray-300">Flexoki Dark</div>
+<div class="text-xs text-[#fbbf24] mt-0.5">new</div>
+</div></div>
+<!-- Card: Dracula -->
+<div class="group relative bg-[#2b2d31] rounded-lg p-3 border border-gray-700 hover:border-gray-600 cursor-pointer mb-3 flex items-center hover:bg-[#36393f] transition-colors"><div class="w-12 h-8 bg-[#282a36] rounded-md border border-gray-600 mr-3 flex flex-col justify-center px-1.5 space-y-1">
+<div class="h-1 w-3/4 bg-[#ff79c6] rounded-full"></div>
+<div class="h-1 w-1/2 bg-[#bd93f9] rounded-full"></div>
+</div>
+<div class="flex-1">
+<div class="text-sm font-medium text-gray-300">Dracula</div>
+<div class="text-xs text-gray-500 flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[10px] mr-1">group</span>
+            15922
+        </div>
+</div></div>
+<!-- Card: One Dark Pro -->
+<div class="group relative bg-[#2b2d31] rounded-lg p-3 border border-gray-700 hover:border-gray-600 cursor-pointer mb-3 flex items-center hover:bg-[#36393f] transition-colors"><div class="w-12 h-8 bg-[#282c34] rounded-md border border-gray-600 mr-3 flex flex-col justify-center px-1.5 space-y-1">
+<div class="h-1 w-3/4 bg-[#61afef] rounded-full"></div>
+<div class="h-1 w-1/2 bg-[#98c379] rounded-full"></div>
+</div>
+<div class="flex-1">
+<div class="text-sm font-medium text-gray-300">One Dark Pro</div>
+<div class="text-xs text-gray-500 flex items-center mt-0.5">
+<span class="material-symbols-outlined text-[10px] mr-1">group</span>
+            2208
+        </div>
+</div></div></div>
+</div>
+</aside>
+<!-- END: Settings Sidebar -->
+</main>
+<!-- END: MainContent -->
+</body></html>

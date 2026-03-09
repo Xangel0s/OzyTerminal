@@ -143,6 +143,7 @@ export interface VaultEntry {
   host: string;
   port: number;
   username: string;
+  password?: string;
   privateKeyPem: string;
   privateKeyPassphrase?: string;
   certificatePem?: string;
@@ -166,6 +167,23 @@ export interface LocalDirectoryResponse {
   entries: LocalDirectoryEntry[];
 }
 
+export interface RemoteDirectoryResponse {
+  currentPath: string;
+  parentPath?: string;
+  entries: LocalDirectoryEntry[];
+}
+
+export interface SftpRemoteConnectionDraft {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  privateKeyPem: string;
+  privateKeyPassphrase?: string;
+  knownHostFingerprint?: string;
+  startPath?: string;
+}
+
 export interface KnownHostEntry {
   host: string;
   port: number;
@@ -180,6 +198,58 @@ export interface LocalVaultResponse {
   knownHosts: KnownHostEntry[];
   updatedAt: number;
   vaultPath: string;
+}
+
+export interface KeychainEntry {
+  id: string;
+  name: string;
+  type: 'ssh-key' | 'password' | 'token' | string;
+  fingerprint: string;
+  createdAt: string;
+}
+
+export interface SnippetEntry {
+  id: string;
+  name: string;
+  description: string;
+  code: string;
+  language: string;
+  tags: string[];
+}
+
+export interface PortForwardEntry {
+  id: string;
+  name: string;
+  localPort: number;
+  remoteHost: string;
+  remotePort: number;
+  host: string;
+  isActive: boolean;
+}
+
+export interface AppDataResponse {
+  keychainEntries: KeychainEntry[];
+  snippets: SnippetEntry[];
+  portForwards: PortForwardEntry[];
+  updatedAt: number;
+  storagePath: string;
+}
+
+export interface ActivityLogEntry {
+  id: string;
+  timestamp: string;
+  occurredAt: number;
+  level: 'info' | 'warning' | 'error' | 'success' | string;
+  category: string;
+  host: string;
+  action: string;
+  details: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ActivityLogsResponse {
+  logPath: string;
+  entries: ActivityLogEntry[];
 }
 
 export type TerminalErrorKind =
@@ -200,3 +270,10 @@ export interface TerminalErrorPayload {
   suggestion?: string;
   retryable: boolean;
 }
+
+export type TerminalEvent =
+  | { type: 'connected'; session_id: string }
+  | { type: 'diagnostic'; phase: string; message: string; elapsed_ms: number }
+  | { type: 'stdout'; chunk_b64: string }
+  | { type: 'closed'; reason: string }
+  | { type: 'error'; error: TerminalErrorPayload }

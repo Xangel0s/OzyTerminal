@@ -5,16 +5,15 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   Users,
-  MessageCircle,
   Send,
   Phone,
   Video,
   Eye,
   X,
-  User,
   Clock,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { usePersistedCollection } from '@/hooks/usePersistedCollection'
 
 interface CollaborativeUser {
   id: string
@@ -31,59 +30,8 @@ interface Message {
   userName: string
   userAvatar: string
   content: string
-  timestamp: Date
+  timestamp: string
 }
-
-const mockUsers: CollaborativeUser[] = [
-  {
-    id: '1',
-    name: 'Alex Johnson',
-    avatar: 'AJ',
-    status: 'active',
-    role: 'Admin',
-  },
-  {
-    id: '2',
-    name: 'Sarah Chen',
-    avatar: 'SC',
-    status: 'active',
-    role: 'Operator',
-  },
-  {
-    id: '3',
-    name: 'Mike Russell',
-    avatar: 'MR',
-    status: 'idle',
-    role: 'Support',
-  },
-]
-
-const mockMessages: Message[] = [
-  {
-    id: '1',
-    userId: '2',
-    userName: 'Sarah Chen',
-    userAvatar: 'SC',
-    content: 'Server reboot initiated',
-    timestamp: new Date(Date.now() - 5 * 60000),
-  },
-  {
-    id: '2',
-    userId: '1',
-    userName: 'Alex Johnson',
-    userAvatar: 'AJ',
-    content: 'Confirmed. Monitoring systems online',
-    timestamp: new Date(Date.now() - 3 * 60000),
-  },
-  {
-    id: '3',
-    userId: '3',
-    userName: 'Mike Russell',
-    userAvatar: 'MR',
-    content: 'All services responding normally',
-    timestamp: new Date(Date.now() - 1 * 60000),
-  },
-]
 
 interface CollaborationPanelProps {
   isOpen: boolean
@@ -91,19 +39,19 @@ interface CollaborationPanelProps {
 }
 
 export function CollaborationPanel({ isOpen, onClose }: CollaborationPanelProps) {
-  const [messages, setMessages] = useState<Message[]>(mockMessages)
+  const [messages, setMessages] = usePersistedCollection<Message>('ozyterminal.collaboration-messages')
   const [newMessage, setNewMessage] = useState('')
-  const [users, setUsers] = useState<CollaborativeUser[]>(mockUsers)
+  const [users] = useState<CollaborativeUser[]>([])
 
   const handleSendMessage = () => {
     if (newMessage.trim()) {
       const message: Message = {
-        id: String(messages.length + 1),
-        userId: '1',
+        id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
+        userId: 'local-user',
         userName: 'You',
-        userAvatar: 'AJ',
+        userAvatar: 'YO',
         content: newMessage,
-        timestamp: new Date(),
+        timestamp: new Date().toISOString(),
       }
       setMessages([...messages, message])
       setNewMessage('')
@@ -155,34 +103,40 @@ export function CollaborationPanel({ isOpen, onClose }: CollaborationPanelProps)
 
       {/* Connected Users */}
       <div className="flex-1 overflow-y-auto p-4">
-        <div className="space-y-3">
-          {users.map((user) => (
-            <div
-              key={user.id}
-              className="flex items-center justify-between p-3 bg-secondary rounded-lg hover:bg-muted transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="text-xs bg-accent text-accent-foreground">
-                      {user.avatar}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div
-                    className={`absolute bottom-0 right-0 w-2 h-2 rounded-full ${getStatusColor(user.status)} border border-card`}
-                  />
+        {users.length === 0 ? (
+          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border px-4 text-center text-sm text-muted-foreground">
+            No active collaborators connected.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {users.map((user) => (
+              <div
+                key={user.id}
+                className="flex items-center justify-between p-3 bg-secondary rounded-lg hover:bg-muted transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback className="text-xs bg-accent text-accent-foreground">
+                        {user.avatar}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div
+                      className={`absolute bottom-0 right-0 w-2 h-2 rounded-full ${getStatusColor(user.status)} border border-card`}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {user.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{user.role}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    {user.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">{user.role}</p>
-                </div>
+                <Eye className="w-4 h-4 text-muted-foreground" />
               </div>
-              <Eye className="w-4 h-4 text-muted-foreground" />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Quick Actions */}
@@ -214,32 +168,38 @@ export function CollaborationPanel({ isOpen, onClose }: CollaborationPanelProps)
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.map((msg) => (
-          <div key={msg.id} className="flex gap-2">
-            <Avatar className="h-6 w-6 flex-shrink-0">
-              <AvatarFallback className="text-xs bg-accent text-accent-foreground">
-                {msg.userAvatar}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1 mb-1">
-                <p className="text-xs font-medium text-foreground">
-                  {msg.userName}
-                </p>
-                <Clock className="w-3 h-3 text-muted-foreground" />
-                <p className="text-xs text-muted-foreground">
-                  {msg.timestamp.toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+        {messages.length === 0 ? (
+          <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-border px-4 text-center text-sm text-muted-foreground">
+            No messages yet. Start the conversation from this device.
+          </div>
+        ) : (
+          messages.map((msg) => (
+            <div key={msg.id} className="flex gap-2">
+              <Avatar className="h-6 w-6 flex-shrink-0">
+                <AvatarFallback className="text-xs bg-accent text-accent-foreground">
+                  {msg.userAvatar}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1 mb-1">
+                  <p className="text-xs font-medium text-foreground">
+                    {msg.userName}
+                  </p>
+                  <Clock className="w-3 h-3 text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(msg.timestamp).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                </div>
+                <p className="text-sm text-muted-foreground bg-secondary rounded p-2">
+                  {msg.content}
                 </p>
               </div>
-              <p className="text-sm text-muted-foreground bg-secondary rounded p-2">
-                {msg.content}
-              </p>
             </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       {/* Message Input */}

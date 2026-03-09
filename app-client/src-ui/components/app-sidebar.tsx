@@ -23,22 +23,22 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { id: 'hosts', label: 'Hosts', icon: <Server className="w-5 h-5" />, href: '/hosts' },
-  { id: 'keychain', label: 'Keychain', icon: <Key className="w-5 h-5" />, href: '/keychain' },
+  { id: 'hosts', label: 'Hosts', icon: <Server className="w-5 h-5" />, href: '/' },
+  { id: 'keychain', label: 'Keychain', icon: <Key className="w-5 h-5" />, href: '/?section=keychain' },
   {
     id: 'port-forward',
     label: 'Port Forwarding',
     icon: <ArrowRight className="w-5 h-5" />,
-    href: '/port-forward',
+    href: '/?section=port-forward',
   },
-  { id: 'snippets', label: 'Snippets', icon: <Code2 className="w-5 h-5" />, href: '/snippets' },
+  { id: 'snippets', label: 'Snippets', icon: <Code2 className="w-5 h-5" />, href: '/?section=snippets' },
   {
     id: 'known-hosts',
     label: 'Known Hosts',
     icon: <Shield className="w-5 h-5" />,
-    href: '/known-hosts',
+    href: '/?section=known-hosts',
   },
-  { id: 'logs', label: 'Logs', icon: <Clock className="w-5 h-5" />, href: '/logs' },
+  { id: 'logs', label: 'Logs', icon: <Clock className="w-5 h-5" />, href: '/?section=logs' },
 ]
 
 interface AppSidebarProps {
@@ -92,7 +92,10 @@ export function AppSidebar({
         <nav className="flex-1 overflow-y-auto py-4 px-3">
           <div className="space-y-2">
             {navItems.map((item) => {
-              const isActive = pathname === item.href || pathname?.includes(item.id)
+              const isActive =
+                pathname === item.href ||
+                pathname?.includes(item.id) ||
+                (pathname === '/' && activeSection === item.id)
               return (
                 <Link
                   key={item.id}

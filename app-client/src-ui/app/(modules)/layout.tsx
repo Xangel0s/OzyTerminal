@@ -18,9 +18,6 @@ export default function ModulesLayout({
   const [activeTab, setActiveTab] = useState<'sftp' | 'ssh'>('sftp')
   const [activeSection, setActiveSection] = useState('hosts')
   const [collaborationOpen, setCollaborationOpen] = useState(false)
-  const [sshConnections, setSshConnections] = useState([
-    { id: '1', name: 'Servidor principal', host: '192.168.1.1' },
-  ])
 
   const handleAddSsh = () => {
     // Redirect to dashboard to handle SSH addition logic
