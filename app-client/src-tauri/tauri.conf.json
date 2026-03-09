@@ -15,7 +15,8 @@
         "title": "OzyTerminal",
         "width": 1440,
         "height": 900,
-        "resizable": true
+        "resizable": true,
+        "decorations": false
       }
     ],
     "security": {

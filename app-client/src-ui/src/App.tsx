@@ -122,13 +122,20 @@ const workspaceMeta: Record<WorkspaceView, { label: string; eyebrow: string; des
   },
 };
 
-const themePresets = [
-  { name: 'Termius Dark', meta: 'co', accentClass: 'theme-accent-green', isActive: true },
-  { name: 'Hacker Green', meta: '10955', accentClass: 'theme-accent-lime', isActive: false },
-  { name: 'Kanagawa Wave', meta: '18228', accentClass: 'theme-accent-indigo', isActive: false },
-  { name: 'Flexoki Dark', meta: 'new', accentClass: 'theme-accent-amber', isActive: false },
-  { name: 'Dracula', meta: '15922', accentClass: 'theme-accent-pink', isActive: false },
-  { name: 'One Dark Pro', meta: '2208', accentClass: 'theme-accent-blue', isActive: false },
+interface ThemeDefinition {
+  name: string;
+  meta: string;
+  accentClass: string;
+  vars: Record<string, string>;
+}
+
+const themePresets: ThemeDefinition[] = [
+  { name: 'Termius Dark', meta: 'default', accentClass: 'theme-accent-green', vars: { '--bg': '#111217', '--panel': '#1e242c', '--panel-soft': '#252d37', '--text': '#d4d7dd', '--muted': '#9096a3', '--accent': '#4ade80', '--accent-strong': '#22c55e', '--accent-warm': '#d0a215', '--danger': '#ef6262' } },
+  { name: 'Hacker Green', meta: 'matrix', accentClass: 'theme-accent-lime', vars: { '--bg': '#0a0f0a', '--panel': '#111e11', '--panel-soft': '#1a2b1a', '--text': '#b8e6b8', '--muted': '#6faa6f', '--accent': '#00ff41', '--accent-strong': '#00cc33', '--accent-warm': '#a0d911', '--danger': '#ff4444' } },
+  { name: 'Kanagawa Wave', meta: 'zen', accentClass: 'theme-accent-indigo', vars: { '--bg': '#1f1f28', '--panel': '#2a2a37', '--panel-soft': '#363646', '--text': '#dcd7ba', '--muted': '#727169', '--accent': '#7e9cd8', '--accent-strong': '#7fb4ca', '--accent-warm': '#e6c384', '--danger': '#e82424' } },
+  { name: 'Flexoki Dark', meta: 'warm', accentClass: 'theme-accent-amber', vars: { '--bg': '#100f0f', '--panel': '#1c1b1a', '--panel-soft': '#282726', '--text': '#cecdc3', '--muted': '#878580', '--accent': '#d0a215', '--accent-strong': '#ad8301', '--accent-warm': '#da702c', '--danger': '#d14d41' } },
+  { name: 'Dracula', meta: 'classic', accentClass: 'theme-accent-pink', vars: { '--bg': '#282a36', '--panel': '#383a59', '--panel-soft': '#44475a', '--text': '#f8f8f2', '--muted': '#6272a4', '--accent': '#bd93f9', '--accent-strong': '#ff79c6', '--accent-warm': '#f1fa8c', '--danger': '#ff5555' } },
+  { name: 'One Dark Pro', meta: 'atom', accentClass: 'theme-accent-blue', vars: { '--bg': '#282c34', '--panel': '#21252b', '--panel-soft': '#2c313c', '--text': '#abb2bf', '--muted': '#636d83', '--accent': '#61afef', '--accent-strong': '#56b6c2', '--accent-warm': '#e5c07b', '--danger': '#e06c75' } },
 ];
 
 const shellNavigation: Array<{ id: VaultSection; label: string; icon: AppIconName }> = [
@@ -269,6 +276,7 @@ export default function App() {
   const [vaultSearchQuery, setVaultSearchQuery] = useState('');
   const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   const [vaultDetailEntry, setVaultDetailEntry] = useState<VaultEntry | null>(null);
+  const [activeTheme, setActiveTheme] = useState('Termius Dark');
   const [feedback, setFeedback] = useState('vault local listo');
   const credentialFileInputRef = useRef<HTMLInputElement | null>(null);
   const browserMenuRef = useRef<HTMLDivElement | null>(null);
@@ -3172,16 +3180,16 @@ export default function App() {
                   <section className="settings-card">
                     <SectionHeading title="Workspaces" subtitle="Saltos rapidos equivalentes al menu de la hamburguesa." />
                     <div className="settings-action-list">
-                      <button type="button" className="command-chip primary" onClick={() => openVaultWorkspace()}>
+                      <button type="button" className="command-chip primary" onClick={() => { openVaultWorkspace(); setIsSettingsPanelOpen(false); }}>
                         Vaults
                       </button>
-                      <button type="button" className="command-chip" onClick={() => openSftpWorkspace()}>
+                      <button type="button" className="command-chip" onClick={() => { openSftpWorkspace(); setIsSettingsPanelOpen(false); }}>
                         SFTP
                       </button>
-                      <button type="button" className="command-chip" onClick={() => openRelayWorkspace()}>
+                      <button type="button" className="command-chip" onClick={() => { openRelayWorkspace(); setIsSettingsPanelOpen(false); }}>
                         Relay
                       </button>
-                      <button type="button" className="command-chip" onClick={() => openCollabWorkspace()}>
+                      <button type="button" className="command-chip" onClick={() => { openCollabWorkspace(); setIsSettingsPanelOpen(false); }}>
                         Collab
                       </button>
                     </div>
@@ -3191,7 +3199,14 @@ export default function App() {
                     <SectionHeading title="Appearance" subtitle="Presets visuales listos para expandirse luego a persistencia real." />
                     <div className="settings-theme-list">
                       {themePresets.map((preset) => (
-                        <button key={preset.name} type="button" className={`settings-theme-item ${preset.isActive ? 'is-active' : ''}`} onClick={() => setFeedback(`preset ${preset.name} seleccionado`)}>
+                        <button key={preset.name} type="button" className={`settings-theme-item ${activeTheme === preset.name ? 'is-active' : ''}`} onClick={() => {
+                          setActiveTheme(preset.name);
+                          const root = document.documentElement;
+                          for (const [key, value] of Object.entries(preset.vars)) {
+                            root.style.setProperty(key, value);
+                          }
+                          setFeedback(`theme applied: ${preset.name}`);
+                        }}>
                           <span className={`settings-theme-swatch ${preset.accentClass}`} />
                           <span className="settings-theme-copy">
                             <strong>{preset.name}</strong>
@@ -3212,6 +3227,14 @@ export default function App() {
                       <div className="settings-status-row">
                         <span>Vault Scope</span>
                         <strong>{activeVaultScope === 'personal' ? 'Personal' : 'Team'}</strong>
+                      </div>
+                      <div className="settings-status-row">
+                        <span>Theme</span>
+                        <strong>{activeTheme}</strong>
+                      </div>
+                      <div className="settings-status-row">
+                        <span>Vault Hosts</span>
+                        <strong>{vaultEntries.length} saved</strong>
                       </div>
                       <div className="settings-status-row">
                         <span>Session</span>

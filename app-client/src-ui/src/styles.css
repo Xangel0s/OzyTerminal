@@ -870,9 +870,33 @@ body {
 
 .replica-workspace-scroll {
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 18px;
   animation: workspace-fade-in 280ms ease;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.replica-workspace-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+.replica-workspace-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.replica-workspace-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.replica-workspace-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+
+.replica-workspace-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 @keyframes workspace-fade-in {
